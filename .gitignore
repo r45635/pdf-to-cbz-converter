@@ -1,0 +1,15 @@
+# Répertoires générés automatiquement par PyInstaller
+build/
+dist/
+
+# Fichiers PyInstaller
+*.spec
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
