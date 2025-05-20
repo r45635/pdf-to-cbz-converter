@@ -85,13 +85,22 @@ If you don't want to install Python or dependencies, compile a standalone `.exe`
 pyinstaller --onefile pdf_to_cbz.spec
 ```
 
-Or use the one already in the `dist/` folder (if available):
+Or use the one already in the `dist/` folder:
 
 ```bash
 pdf_to_cbz.exe sample_dir/ --output-dir out_cbz --auto-dpi
 ```
 
 > Requires Poppler (`pdftoppm.exe`) in system PATH.
+
+---
+Or use the all In one already in the `dist (Full Standalone) /` folder:
+
+```bash
+pdf_to_cbz.exe sample_dir/ --output-dir out_cbz --auto-dpi
+```
+
+> This Qll In One Version does Requires Poppler (`pdftoppm.exe`) in system PATH.
 
 ---
 
