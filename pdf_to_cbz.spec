@@ -2,7 +2,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['pdf_to_cbz_v104.py'],
+    ['pdf_to_cbz.py'],
     pathex=[],
     binaries=[],
     datas=[],
