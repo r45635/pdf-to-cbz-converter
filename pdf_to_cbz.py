@@ -167,10 +167,12 @@ def process_pdf(pdf_path, args, logger):
     logger.info(f"⏱️ Done in {int(duration // 60)}m {int(duration % 60)}s")
 
 def main():
-    args = parse_arguments()
-    if args.version:
+    # Check for version manually before parsing all arguments
+    if "--version" in sys.argv:
         print_version()
         return
+        
+    args = parse_arguments()
 
     logger = setup_logging(args.logfile, args.verbose)
 
