@@ -2,10 +2,12 @@
 
 A local advanced converter from PDF to CBZ, with DPI analysis, image format options, batch mode, multi-threading, logging, and more.
 
+![PDF to CBZ Banner](banner.png)
+
 > Version `v1.0.0` – Build `20240518`  
 > Author: Vincent Cruvellier  
 > Compatible with: Windows (requires Poppler), Python 3.9+
-![PDF to CBZ Banner](banner.png)
+
 ---
 
 ## ✨ Features
