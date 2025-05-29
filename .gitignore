@@ -1,6 +1,10 @@
 # Répertoires générés automatiquement par PyInstaller
 build/
 dist/
+poppler/
+
+#poppler specific
+copy_poppler.bat
 
 # Fichiers PyInstaller
 *.spec
@@ -13,3 +17,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# No EXE
+*.exe
