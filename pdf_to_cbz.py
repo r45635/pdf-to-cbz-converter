@@ -10,6 +10,7 @@ import zipfile
 import tempfile
 import shutil
 import statistics
+from multiprocessing import freeze_support
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -54,7 +55,8 @@ class Converter:
         width_pt = float(first.mediabox.width)
         clarity_dpi = int(target_width_px / width_pt * 72)
         logging.info(
-            f"Calculated clarity DPI: {clarity_dpi} (target width {target_width_px}px, page width {width_pt:.1f}pt)"
+            f"Calculated clarity DPI: {clarity_dpi} "
+            f"(target width {target_width_px}px, page width {width_pt:.1f}pt)"
         )
         return clarity_dpi
 
@@ -87,11 +89,9 @@ class Converter:
         est_low = estimate_size(low)
         high = low
         est_high = est_low
-        while est_high < orig_size:
+        while est_high < orig_size and high <= 5000:
             high *= 2
             est_high = estimate_size(high)
-            if high > 5000:
-                break
         while high - low > 1:
             mid = (low + high) // 2
             if estimate_size(mid) < orig_size:
@@ -101,7 +101,8 @@ class Converter:
         final_est = estimate_size(high)
         logging.info(
             f"Size-matching DPI determined: {high} "
-            f"(estimated {final_est/1024/1024:.1f}MB vs original {orig_size/1024/1024:.1f}MB)"
+            f"(estimated {final_est/1024/1024:.1f}MB vs "
+            f"original {orig_size/1024/1024:.1f}MB)"
         )
         return high
 
@@ -141,10 +142,12 @@ class Converter:
                         dpi_h_vals.append(ph / (mh / 72))
         if dpi_w_vals:
             print(
-                f"Embedded DPI W: min {min(dpi_w_vals):.1f}, max {max(dpi_w_vals):.1f}, avg {statistics.mean(dpi_w_vals):.1f}"
+                f"Embedded DPI W: min {min(dpi_w_vals):.1f}, "
+                f"max {max(dpi_w_vals):.1f}, avg {statistics.mean(dpi_w_vals):.1f}"
             )
             print(
-                f"Embedded DPI H: min {min(dpi_h_vals):.1f}, max {max(dpi_h_vals):.1f}, avg {statistics.mean(dpi_h_vals):.1f}"
+                f"Embedded DPI H: min {min(dpi_h_vals):.1f}, "
+                f"max {max(dpi_h_vals):.1f}, avg {statistics.mean(dpi_h_vals):.1f}"
             )
         else:
             print("No embedded images for DPI stats.")
@@ -154,7 +157,9 @@ class Converter:
         ext = 'jpg' if self.fmt == 'jpeg' else 'png'
         assert self.tempdir, "Temp directory not initialized"
         prefix = self.tempdir / f"{base}_{page:03d}"
-        binary = str(self.poppler_path / 'pdftocairo') if self.poppler_path else 'pdftocairo'
+        binary = (
+            str(self.poppler_path / 'pdftocairo') if self.poppler_path else 'pdftocairo'
+        )
         cmd = [
             binary, '-f', str(page), '-l', str(page),
             f'-{self.fmt}', '-r', str(self.dpi),
@@ -176,8 +181,8 @@ class Converter:
             self.dpi = self.recommend_dpi_for_size()
         self.output_cbz.parent.mkdir(parents=True, exist_ok=True)
         self.tempdir = Path(tempfile.mkdtemp(prefix=f"pdf2cbz_{self.input_pdf.stem}_"))
-        with ProcessPoolExecutor(max_workers=self.threads) as execp:
-            futures = [execp.submit(self.process_page, i) for i in range(1, total+1)]
+        with ProcessPoolExecutor(max_workers=self.threads) as executor:
+            futures = [executor.submit(self.process_page, i) for i in range(1, total+1)]
             with zipfile.ZipFile(self.output_cbz, 'w') as zf:
                 for fut in tqdm(as_completed(futures), total=total, desc='Converting'):
                     try:
@@ -231,4 +236,5 @@ def main():
 
 
 if __name__ == '__main__':
+    freeze_support()
     main()
