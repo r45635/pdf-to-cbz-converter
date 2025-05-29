@@ -1,133 +1,234 @@
-
-import os
-import sys
-import time
-import shutil
-import zipfile
-import logging
+#!/usr/bin/env python3
+"""
+Efficient PDF to CBZ converter leveraging Poppler CLI, multiprocessing, and in-memory zipping.
+"""
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from pdf2image import convert_from_path
-from PIL import Image
-from PyPDF2 import PdfReader
+import logging
+import subprocess
+import sys
+import zipfile
+import tempfile
+import shutil
+import statistics
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
-def get_poppler_path():
-    if getattr(sys, 'frozen', False):
-        return os.path.join(sys._MEIPASS, 'poppler_bin')
-    else:
-        return r'C:\WIN32APP\Poppler\poppler-24.08.0\Library\bin'
+import PyPDF2
+from tqdm import tqdm
 
-POPPLER_PATH = get_poppler_path()
 
-def setup_logging(logfile, verbose):
-    handlers = [logging.StreamHandler(sys.stdout)]
-    if logfile:
-        handlers.append(logging.FileHandler(logfile, encoding="utf-8"))
+def setup_logging():
     logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=handlers
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
-    return logging.getLogger("pdf2cbz")
 
-def convert_page(image, image_path, fmt="png", quality=85):
-    if fmt == "jpeg":
-        image = image.convert("RGB")
-        image.save(image_path, "JPEG", quality=quality)
-    else:
-        image.save(image_path, "PNG")
 
-def process_pdf(input_pdf, args, logger):
-    base_name = os.path.splitext(os.path.basename(input_pdf))[0]
-    temp_dir = base_name + "_images"
-    os.makedirs(temp_dir, exist_ok=True)
+class Converter:
+    def __init__(
+        self,
+        input_pdf: Path,
+        output_cbz: Path,
+        dpi: int | None,
+        fmt: str,
+        quality: int,
+        threads: int,
+        poppler_path: Path | None,
+    ):
+        self.input_pdf = input_pdf
+        self.output_cbz = output_cbz
+        self.dpi = dpi
+        self.fmt = fmt
+        self.quality = quality
+        self.threads = threads
+        self.poppler_path = poppler_path
+        self.tempdir: Path | None = None
 
-    if args.analyse:
-        reader = PdfReader(input_pdf)
-        dpi = 172  # Placeholder default for analysis
-        logger.info(f"{os.path.basename(input_pdf)}: Suggested DPI = {dpi}")
-        return
+    def calculate_clarity_dpi(self, target_width_px: int = 2000) -> int:
+        """
+        Estimate DPI for clarity based on the first page width.
+        """
+        reader = PyPDF2.PdfReader(str(self.input_pdf))
+        first = reader.pages[0]
+        width_pt = float(first.mediabox.width)
+        clarity_dpi = int(target_width_px / width_pt * 72)
+        logging.info(
+            f"Calculated clarity DPI: {clarity_dpi} (target width {target_width_px}px, page width {width_pt:.1f}pt)"
+        )
+        return clarity_dpi
 
-    if not args.force and os.path.exists(args.output or f"{base_name}.cbz"):
-        logger.warning(f"File exists: {args.output or base_name + '.cbz'} (use --force to overwrite)")
-        return
+    def recommend_dpi_for_size(self, target_width_px: int = 2000) -> int:
+        """
+        Recommend a DPI to match the original PDF's file size via iterative sampling.
+        Uses binary search over DPI values, sampling first/middle/last pages.
+        """
+        reader = PyPDF2.PdfReader(str(self.input_pdf))
+        total_pages = len(reader.pages)
+        indices = [1] if total_pages < 3 else [1, total_pages // 2, total_pages]
+        orig_size = self.input_pdf.stat().st_size
 
-    dpi = args.dpi or (172 if args.auto_dpi else 200)
-    t0 = time.time()
-    images = convert_from_path(input_pdf, dpi=dpi, poppler_path=POPPLER_PATH)
-    total = len(images)
-    logger.info(f"Converting '{os.path.basename(input_pdf)}' ({total} pages) with DPI={dpi}...")
+        def estimate_size(dpi_val: int) -> float:
+            sample_temp = Path(tempfile.mkdtemp(prefix="pdf2cbz_sample_"))
+            try:
+                self.tempdir = sample_temp
+                self.dpi = dpi_val
+                sizes = []
+                for pg in indices:
+                    data, _ = self.process_page(pg)
+                    sizes.append(len(data))
+                avg = statistics.mean(sizes)
+                return avg * total_pages
+            finally:
+                shutil.rmtree(sample_temp, ignore_errors=True)
 
-    def convert_and_save(idx):
-        filename = f"{args.prefix}{idx+1:03d}.{args.format}"
-        image_path = os.path.join(temp_dir, filename)
-        convert_page(images[idx], image_path, fmt=args.format, quality=args.quality)
-        progress = int((idx+1)/total*100)
-        print(f"\rProgress: {progress}% ({idx+1}/{total})", end="", flush=True)
+        clarity_dpi = self.calculate_clarity_dpi(target_width_px)
+        low = clarity_dpi
+        est_low = estimate_size(low)
+        high = low
+        est_high = est_low
+        while est_high < orig_size:
+            high *= 2
+            est_high = estimate_size(high)
+            if high > 5000:
+                break
+        while high - low > 1:
+            mid = (low + high) // 2
+            if estimate_size(mid) < orig_size:
+                low = mid
+            else:
+                high = mid
+        final_est = estimate_size(high)
+        logging.info(
+            f"Size-matching DPI determined: {high} "
+            f"(estimated {final_est/1024/1024:.1f}MB vs original {orig_size/1024/1024:.1f}MB)"
+        )
+        return high
 
-    with ThreadPoolExecutor(max_workers=args.threads) as executor:
-        executor.map(convert_and_save, range(total))
+    def analyze_dpi(self, target_width_px: int = 2000) -> None:
+        """
+        Detailed PDF analysis: media box widths, clarity DPI, size recommendation,
+        and embedded image DPI statistics.
+        """
+        reader = PyPDF2.PdfReader(str(self.input_pdf))
+        widths = [float(p.mediabox.width) for p in reader.pages]
+        count = len(widths)
+        print(f"PDF Analysis for '{self.input_pdf.name}': {count} pages")
+        print(
+            f"Page widths (pt): min {min(widths):.1f}, "
+            f"max {max(widths):.1f}, avg {statistics.mean(widths):.1f}"
+        )
+        clarity = self.calculate_clarity_dpi(target_width_px)
+        print(f"Clarity-based DPI: {clarity}")
+        size_based = self.recommend_dpi_for_size(target_width_px)
+        print(f"Size-based DPI: {size_based}")
 
-    print()
-    output_cbz = args.output or f"{base_name}.cbz"
-    with zipfile.ZipFile(output_cbz, 'w', zipfile.ZIP_DEFLATED) as cbz:
-        for f in sorted(os.listdir(temp_dir)):
-            cbz.write(os.path.join(temp_dir, f), arcname=f)
-        if args.cbz_comment:
-            cbz.comment = args.cbz_comment.encode()
+        dpi_w_vals, dpi_h_vals = [], []
+        for page in reader.pages:
+            resources = page.get('/Resources') or {}
+            xobjects = resources.get('/XObject') or {}
+            for xobj in xobjects.values():
+                try:
+                    obj = xobj.get_object()
+                except Exception:
+                    continue
+                if obj.get('/Subtype') == '/Image':
+                    pw = obj.get('/Width'); ph = obj.get('/Height')
+                    if pw and ph:
+                        mw = float(page.mediabox.width)
+                        mh = float(page.mediabox.height)
+                        dpi_w_vals.append(pw / (mw / 72))
+                        dpi_h_vals.append(ph / (mh / 72))
+        if dpi_w_vals:
+            print(
+                f"Embedded DPI W: min {min(dpi_w_vals):.1f}, max {max(dpi_w_vals):.1f}, avg {statistics.mean(dpi_w_vals):.1f}"
+            )
+            print(
+                f"Embedded DPI H: min {min(dpi_h_vals):.1f}, max {max(dpi_h_vals):.1f}, avg {statistics.mean(dpi_h_vals):.1f}"
+            )
+        else:
+            print("No embedded images for DPI stats.")
 
-    size_pdf = os.path.getsize(input_pdf)
-    size_cbz = os.path.getsize(output_cbz)
-    ratio = 100 * size_cbz / size_pdf
-    logger.info(f"✅ CBZ saved: {output_cbz}")
-    logger.info(f"📦 Size: {size_cbz/1024/1024:.2f} MB (PDF: {size_pdf/1024/1024:.2f} MB, Ratio: {ratio:.1f}%)")
-    logger.info(f"⏱️ Done in {int(time.time()-t0)}s")
+    def process_page(self, page: int) -> tuple[bytes, str]:
+        base = self.input_pdf.stem
+        ext = 'jpg' if self.fmt == 'jpeg' else 'png'
+        assert self.tempdir, "Temp directory not initialized"
+        prefix = self.tempdir / f"{base}_{page:03d}"
+        binary = str(self.poppler_path / 'pdftocairo') if self.poppler_path else 'pdftocairo'
+        cmd = [
+            binary, '-f', str(page), '-l', str(page),
+            f'-{self.fmt}', '-r', str(self.dpi),
+            str(self.input_pdf), str(prefix),
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        pattern = f"{prefix.name}-*.{ext}"
+        files = list(self.tempdir.glob(pattern))
+        if not files:
+            raise FileNotFoundError(f"No image for page {page}")
+        data = files[0].read_bytes()
+        files[0].unlink()
+        return data, f"{base}_{page:03d}.{self.fmt}"
 
-    if not args.keep_temp:
-        shutil.rmtree(temp_dir)
-        logger.info(f"🧹 Temporary folder deleted: {temp_dir}")
+    def convert(self) -> None:
+        reader = PyPDF2.PdfReader(str(self.input_pdf))
+        total = len(reader.pages)
+        if not self.dpi:
+            self.dpi = self.recommend_dpi_for_size()
+        self.output_cbz.parent.mkdir(parents=True, exist_ok=True)
+        self.tempdir = Path(tempfile.mkdtemp(prefix=f"pdf2cbz_{self.input_pdf.stem}_"))
+        with ProcessPoolExecutor(max_workers=self.threads) as execp:
+            futures = [execp.submit(self.process_page, i) for i in range(1, total+1)]
+            with zipfile.ZipFile(self.output_cbz, 'w') as zf:
+                for fut in tqdm(as_completed(futures), total=total, desc='Converting'):
+                    try:
+                        img, name = fut.result()
+                        zf.writestr(name, img)
+                    except Exception:
+                        continue
+        shutil.rmtree(self.tempdir, ignore_errors=True)
+        logging.info(f"Created CBZ: {self.output_cbz}")
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="PDF to CBZ batch converter with advanced options.")
-    parser.add_argument("input", help="Input PDF file or directory containing PDFs")
-    parser.add_argument("output", nargs="?", help="Optional output CBZ name (for single file only)")
-    parser.add_argument("--force", action="store_true", help="Force overwrite of CBZ")
-    parser.add_argument("--dry-run", action="store_true", help="Only show what would be done")
-    parser.add_argument("--threads", type=int, default=1, help="Number of threads (default: 1)")
-    parser.add_argument("--version", action="version", version="pdf_to_cbz v105", help="Show version and exit")
-    parser.add_argument("--logfile", help="Log file to write output")
-    parser.add_argument("--format", choices=["png", "jpeg"], default="png", help="Image format (default: png)")
-    parser.add_argument("--quality", type=int, default=85, help="JPEG quality (default: 85)")
-    parser.add_argument("--dpi", type=int, help="Force DPI")
-    parser.add_argument("--auto-dpi", action="store_true", help="Auto-determine optimal DPI from PDF")
-    parser.add_argument("--prefix", default="page_", help="Prefix for image names (default: page_)")
-    parser.add_argument("--output-dir", help="Directory where CBZ files will be saved")
-    parser.add_argument("--cbz-comment", help="Optional comment for the CBZ archive")
-    parser.add_argument("--keep-temp", action="store_true", help="Keep image folders after processing")
-    parser.add_argument("--analyse", "--analyze", action="store_true", dest="analyse",
-                        help="Only analyse input PDF(s) [alias: --analyze] and suggest DPI")
-    parser.add_argument("--verbose", "--debug", action="store_true", dest="verbose", help="Verbose/debug output")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description='PDF→CBZ converter with size-matching DPI.'
+    )
+    parser.add_argument('input', type=Path, help='Input PDF path')
+    parser.add_argument('-o', '--output', type=Path, help='Output CBZ path')
+    parser.add_argument('--output-dir', type=Path, help='Directory for CBZ')
+    parser.add_argument('-d', '--dpi', type=int, help='Override DPI')
+    parser.add_argument('-f', '--format', choices=['jpeg', 'png'], default='jpeg')
+    parser.add_argument('-q', '--quality', type=int, default=75)
+    parser.add_argument('-t', '--threads', type=int, default=4)
+    parser.add_argument('--poppler-path', type=Path)
+    parser.add_argument('--analyse', action='store_true')
     return parser.parse_args()
 
+
 def main():
+    setup_logging()
     args = parse_args()
-    logger = setup_logging(args.logfile, args.verbose)
+    if not args.input.is_file():
+        logging.error(f"Input not found: {args.input}")
+        sys.exit(1)
+    out = args.output or args.input.with_suffix('.cbz')
+    if args.output_dir:
+        args.output_dir.mkdir(exist_ok=True)
+        out = args.output_dir / out.name
+    conv = Converter(
+        input_pdf=args.input,
+        output_cbz=out,
+        dpi=args.dpi,
+        fmt=args.format,
+        quality=args.quality,
+        threads=args.threads,
+        poppler_path=args.poppler_path,
+    )
+    if args.analyse:
+        conv.analyze_dpi()
+        sys.exit(0)
+    conv.convert()
 
-    if not os.path.exists(args.input):
-        logger.error("Input must be a PDF file or a directory of PDFs.")
-        return
 
-    files = []
-    if os.path.isdir(args.input):
-        files = [os.path.join(args.input, f) for f in os.listdir(args.input) if f.lower().endswith(".pdf")]
-    elif args.input.lower().endswith(".pdf"):
-        files = [args.input]
-    else:
-        logger.error("Input must be a PDF file or a directory of PDFs.")
-        return
-
-    for pdf in files:
-        process_pdf(pdf, args, logger)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
