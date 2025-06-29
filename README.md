@@ -1,28 +1,45 @@
 # 📘 PDF to CBZ Converter (`pdf_to_cbz`)
 
-A local advanced converter from PDF to CBZ, with DPI analysis, image format options, batch mode, multi-threading, logging, and more.
+A local advanced converter from PDF to CBZ, with DPI analysis, image format options, configuration management, comprehensive hints system, and enhanced GUI.
 
 ![PDF to CBZ Banner](banner.png)
 
-> Version `v1.0.0` – Build `20240518`  
+> Version `v2.0.0` – Build `20250629`  
 > Author: Vincent Cruvellier  
 > Compatible with: Windows (requires Poppler), Python 3.9+
 
 ---
 
-## ✨ Features
+## ✨ Enhanced Features
 
+### Core Conversion Features
 - 🖼️ Convert PDF to CBZ in PNG or JPEG
-- 🧠 Auto DPI detection (`--auto-dpi`)
+- 🧠 Auto DPI detection with smart recommendations
 - 📏 Manual DPI/quality/image format options
-- ⚙️ Batch directory conversion
-- 🚀 Multi-thread support (`--threads`)
-- 🧪 DPI analysis mode (`--analyse`)
+- 🚀 Multi-thread support with auto-detection
+- 🧪 DPI analysis mode with size projections
 - 🧼 Auto cleanup of temp image folders
-- 📝 Logging to console or file (`--logfile`)
-- 🧪 Dry-run mode (`--dry-run`)
-- 📦 CBZ comment embedding (`--cbz-comment`)
-- ✅ Executable version available (see below)
+- 📝 Comprehensive logging system
+
+### NEW: Configuration Management
+- 🔧 **Persistent Settings**: Save and load conversion preferences
+- 📋 **JSON Configuration**: Human-readable config files with comments
+- � **Smart Defaults**: Automatic optimal value selection
+- ⚙️ **CLI Override**: Command line arguments override config settings
+
+### NEW: Enhanced User Experience
+- � **Comprehensive Hints**: Built-in guidance and troubleshooting
+- 🎯 **DPI Recommendations**: Context-aware optimization tips
+- 📷 **Format Guidance**: When to use JPEG vs PNG
+- ⚡ **Performance Tips**: Threading and memory optimization
+- 🔍 **Troubleshooting Guide**: Common issues and solutions
+
+### NEW: Improved GUI
+- 🖥️ **Enhanced Interface**: Smart tooltips and visual indicators
+- 🎚️ **Quality Slider**: Visual JPEG quality adjustment
+- 🔧 **Config Management**: Save/load settings directly from GUI
+- ❓ **Context Help**: Built-in format and optimization guidance
+- 📊 **Better Progress**: Enhanced visual feedback
 
 ---
 
@@ -45,34 +62,91 @@ pip install -r requirements.txt
 
 - Download: https://github.com/oschwartz10612/poppler-windows/releases
 - Add the `bin/` directory to your system `PATH`
-- Or configure the `POPPLER_PATH` variable in the script
+- Or use `--poppler-path` to specify location
 
 ---
 
-## 🚀 Usage
+## 🚀 Quick Start
 
-### Basic conversion:
-
+### 1. Get Help and Tips
 ```bash
-python pdf_to_cbz_v104.py myfile.pdf
+# Show comprehensive hints and guidance
+python hints.py
+
+# Or get command-specific help
+python pdf_to_cbz.py --help
 ```
 
-### Batch conversion with options:
-
+### 2. Create Configuration
 ```bash
-python pdf_to_cbz_v104.py sample_dir/ --output-dir out_cbz --auto-dpi --format jpeg --quality 85 --threads 4
+# Create sample configuration
+python pdf_to_cbz.py --create-config
+
+# This creates ~/.pdf2cbz_config.sample.json
+# Copy and customize it to ~/.pdf2cbz_config.json
 ```
 
-### Analyse without conversion:
+### 3. Basic Usage
 
+#### Command Line
 ```bash
-python pdf_to_cbz_v104.py myfile.pdf --analyse
+# Basic conversion with auto-settings
+python pdf_to_cbz.py document.pdf
+
+# High-quality conversion
+python pdf_to_cbz.py document.pdf -d 200 -f png -q 95
+
+# Analyze before converting
+python pdf_to_cbz.py document.pdf --analyse
+
+# Save current settings for future use
+python pdf_to_cbz.py document.pdf --save-config
 ```
 
-### Get help:
-
+#### Enhanced GUI
 ```bash
-python pdf_to_cbz_v104.py --help
+# Launch improved GUI
+python pdf_to_cbz_gui.py
+
+# Features:
+# - Click "Show Hints" for comprehensive help
+# - Use "?" button for format guidance
+# - Save/Load configurations
+# - Quality slider for visual adjustment
+```
+
+### 4. Configuration-Based Workflow
+```bash
+# Use saved configuration with specific overrides
+python pdf_to_cbz.py document.pdf -d 300  # Uses config quality/format, CLI DPI
+
+# Custom config file
+python pdf_to_cbz.py document.pdf --config my_settings.json
+```
+
+---
+
+## 📋 Advanced Usage Examples
+
+### For Comics/Manga
+```bash
+python pdf_to_cbz.py comic.pdf -d 150 -f jpeg -q 85
+```
+
+### For Text Documents
+```bash
+python pdf_to_cbz.py textbook.pdf -d 200 -f png
+```
+
+### Batch Processing with Configuration
+```bash
+# Set up optimal config first
+python pdf_to_cbz.py sample.pdf -d 180 -f jpeg -q 90 --save-config
+
+# Then process multiple files with saved settings
+python pdf_to_cbz.py book1.pdf
+python pdf_to_cbz.py book2.pdf
+python pdf_to_cbz.py book3.pdf
 ```
 
 ---

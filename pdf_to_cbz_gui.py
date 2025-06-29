@@ -14,7 +14,9 @@ with a graphical progress bar. In GUI “Analyse only” mode (or via “Compute
   - Estimated per-page image size at recommended DPI
   - Projected total CBZ size at recommended DPI
 
-Additionally, you can compute these analysis metrics at any time via the "Compute Analysis" button before running.
+Additionally, you can compu    if inp.suffix.lower() != ".pdf":
+        logging.error("Input file is not a PDF: %s", inp)
+        sys.exit(1)these analysis metrics at any time via the "Compute Analysis" button before running.
 """
 import argparse
 import logging
@@ -30,6 +32,14 @@ from pathlib import Path
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+
+# Import our custom modules
+try:
+    from config_manager import ConfigManager
+    from hints import print_usage_hints, print_dpi_recommendations, print_format_recommendations
+except ImportError:
+    # Fallback if modules aren't available
+    ConfigManager = None
 
 from PyPDF2 import PdfReader
 from pdf2image import convert_from_path
@@ -251,7 +261,30 @@ class PDF2CBZGui:
     def __init__(self, root):
         self.root = root
         self.root.title("PDF → CBZ Converter")
+        
+        # Initialize configuration
+        self.config_manager = ConfigManager() if ConfigManager else None
+        self.load_config_values()
+        
         self.create_widgets()
+    
+    def load_config_values(self):
+        """Load default values from configuration."""
+        if self.config_manager:
+            self.default_dpi = self.config_manager.get('dpi', '')
+            self.default_format = self.config_manager.get('format', 'jpeg')
+            self.default_quality = self.config_manager.get('quality', 85)
+            self.default_threads = self.config_manager.get('threads', os.cpu_count() or 1)
+            self.default_poppler_path = self.config_manager.get('poppler_path', '')
+            self.default_output_dir = self.config_manager.get('output_directory', '')
+        else:
+            # Fallback defaults
+            self.default_dpi = ''
+            self.default_format = 'jpeg'
+            self.default_quality = 85
+            self.default_threads = os.cpu_count() or 1
+            self.default_poppler_path = ''
+            self.default_output_dir = ''
 
     def create_widgets(self):
         pad = {"padx": 5, "pady": 5}
@@ -270,23 +303,35 @@ class PDF2CBZGui:
 
         # DPI
         tk.Label(self.root, text="DPI:").grid(row=2, column=0, sticky="e", **pad)
-        self.dpi_var = tk.StringVar()
-        tk.Entry(self.root, textvariable=self.dpi_var, width=10).grid(row=2, column=1, sticky="w", **pad)
+        self.dpi_var = tk.StringVar(value=str(self.default_dpi) if self.default_dpi else "")
+        dpi_frame = tk.Frame(self.root)
+        dpi_frame.grid(row=2, column=1, sticky="w", **pad)
+        tk.Entry(dpi_frame, textvariable=self.dpi_var, width=10).pack(side=tk.LEFT)
+        tk.Label(dpi_frame, text="(auto if empty)", font=("Arial", 8), fg="gray").pack(side=tk.LEFT, padx=5)
 
         # Format
         tk.Label(self.root, text="Format:").grid(row=3, column=0, sticky="e", **pad)
-        self.format_var = tk.StringVar(value="jpeg")
-        tk.OptionMenu(self.root, self.format_var, "jpeg", "png").grid(row=3, column=1, sticky="w", **pad)
+        self.format_var = tk.StringVar(value=self.default_format)
+        format_frame = tk.Frame(self.root)
+        format_frame.grid(row=3, column=1, sticky="w", **pad)
+        tk.OptionMenu(format_frame, self.format_var, "jpeg", "png").pack(side=tk.LEFT)
+        tk.Button(format_frame, text="?", command=self.show_format_help, width=2).pack(side=tk.LEFT, padx=5)
 
         # Quality
         tk.Label(self.root, text="JPEG Quality:").grid(row=4, column=0, sticky="e", **pad)
-        self.quality_var = tk.StringVar(value="85")
-        tk.Entry(self.root, textvariable=self.quality_var, width=10).grid(row=4, column=1, sticky="w", **pad)
+        self.quality_var = tk.StringVar(value=str(self.default_quality))
+        quality_frame = tk.Frame(self.root)
+        quality_frame.grid(row=4, column=1, sticky="w", **pad)
+        tk.Entry(quality_frame, textvariable=self.quality_var, width=10).pack(side=tk.LEFT)
+        tk.Scale(quality_frame, from_=10, to=100, orient=tk.HORIZONTAL, variable=self.quality_var, length=100).pack(side=tk.LEFT, padx=5)
 
         # Threads
         tk.Label(self.root, text="Threads:").grid(row=5, column=0, sticky="e", **pad)
-        self.threads_var = tk.StringVar(value=str(os.cpu_count() or 1))
-        tk.Entry(self.root, textvariable=self.threads_var, width=10).grid(row=5, column=1, sticky="w", **pad)
+        self.threads_var = tk.StringVar(value=str(self.default_threads))
+        threads_frame = tk.Frame(self.root)
+        threads_frame.grid(row=5, column=1, sticky="w", **pad)
+        tk.Entry(threads_frame, textvariable=self.threads_var, width=10).pack(side=tk.LEFT)
+        tk.Button(threads_frame, text="Auto", command=self.set_auto_threads, width=6).pack(side=tk.LEFT, padx=5)
 
         # Poppler Path
         tk.Label(self.root, text="Poppler Path:").grid(row=6, column=0, sticky="e", **pad)
@@ -313,9 +358,20 @@ class PDF2CBZGui:
         self.text_area = scrolledtext.ScrolledText(self.root, width=60, height=15, state="disabled")
         self.text_area.grid(row=10, column=0, columnspan=3, rowspan=5, **pad)
 
+        # Configuration and Help Buttons
+        config_frame = tk.Frame(self.root)
+        config_frame.grid(row=15, column=0, columnspan=3, pady=5)
+        
+        tk.Button(config_frame, text="Save Config", command=self.save_current_config).pack(side=tk.LEFT, padx=5)
+        tk.Button(config_frame, text="Load Config", command=self.load_config_file).pack(side=tk.LEFT, padx=5)
+        tk.Button(config_frame, text="Show Hints", command=self.show_hints).pack(side=tk.LEFT, padx=5)
+        
         # Run and Quit Buttons
-        tk.Button(self.root, text="Run", command=self.start_process).grid(row=16, column=1, sticky="e", **pad)
-        tk.Button(self.root, text="Quit", command=self.root.quit).grid(row=16, column=2, sticky="w", **pad)
+        button_frame = tk.Frame(self.root)
+        button_frame.grid(row=16, column=0, columnspan=3, pady=10)
+        
+        tk.Button(button_frame, text="Run", command=self.start_process, bg="lightgreen", width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Quit", command=self.root.quit, width=10).pack(side=tk.LEFT, padx=5)
 
     def browse_input(self):
         path = filedialog.askopenfilename(
@@ -571,6 +627,131 @@ class PDF2CBZGui:
 
         threading.Thread(target=run_task, daemon=True).start()
 
+    def set_auto_threads(self):
+        """Set threads to CPU count."""
+        self.threads_var.set(str(os.cpu_count() or 1))
+    
+    def show_format_help(self):
+        """Show format selection help."""
+        help_text = """Image Format Guide:
+
+JPEG:
+• Best for photos and complex images
+• Smaller file sizes
+• Quality 70-85: Good for most content
+• Quality 90+: High quality, larger files
+
+PNG:
+• Best for line art and simple graphics
+• Lossless compression
+• Larger files but perfect quality
+• Good for black & white documents
+
+Recommendations:
+• Comics/Manga: JPEG 85
+• Text documents: PNG
+• Scanned books: JPEG 80-90"""
+        messagebox.showinfo("Format Help", help_text)
+    
+    def save_current_config(self):
+        """Save current settings to config file."""
+        if not self.config_manager:
+            messagebox.showwarning("Warning", "Configuration manager not available")
+            return
+            
+        try:
+            # Get current values
+            dpi_val = self.dpi_var.get().strip()
+            if dpi_val:
+                self.config_manager.set('dpi', int(dpi_val))
+            else:
+                self.config_manager.set('dpi', None)
+                
+            self.config_manager.set('format', self.format_var.get())
+            self.config_manager.set('quality', int(self.quality_var.get()))
+            self.config_manager.set('threads', int(self.threads_var.get()))
+            
+            poppler_path = self.poppler_var.get().strip()
+            if poppler_path:
+                self.config_manager.set('poppler_path', poppler_path)
+                
+            self.config_manager.save_config()
+            messagebox.showinfo("Success", f"Configuration saved to {self.config_manager.config_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save configuration: {e}")
+    
+    def load_config_file(self):
+        """Load configuration from file."""
+        if not self.config_manager:
+            messagebox.showwarning("Warning", "Configuration manager not available")
+            return
+            
+        config_path = filedialog.askopenfilename(
+            title="Select configuration file",
+            filetypes=[("JSON files", "*.json"), ("All files", "*")]
+        )
+        if config_path:
+            try:
+                self.config_manager.config_path = Path(config_path)
+                self.config_manager.load_config()
+                self.load_config_values()
+                # Update GUI with new values
+                self.dpi_var.set(str(self.default_dpi) if self.default_dpi else "")
+                self.format_var.set(self.default_format)
+                self.quality_var.set(str(self.default_quality))
+                self.threads_var.set(str(self.default_threads))
+                self.poppler_var.set(self.default_poppler_path)
+                messagebox.showinfo("Success", f"Configuration loaded from {config_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load configuration: {e}")
+    
+    def show_hints(self):
+        """Show helpful hints in a new window."""
+        hints_window = tk.Toplevel(self.root)
+        hints_window.title("Helpful Hints")
+        hints_window.geometry("600x500")
+        
+        # Create text widget with scrollbar
+        text_widget = scrolledtext.ScrolledText(hints_window, wrap=tk.WORD, width=70, height=30)
+        text_widget.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        
+        # Add hints content
+        hints_content = """💡 PDF to CBZ Converter - Helpful Hints:
+
+🎯 DPI Recommendations:
+   • Use 'Compute Analysis' to see suggested DPI for your PDF
+   • For comics/manga: 150-200 DPI usually sufficient
+   • For text documents: 200-300 DPI for better readability
+   • High DPI = larger file size but better quality
+
+📁 Output Tips:
+   • CBZ files are just ZIP archives with images
+   • Use JPEG for smaller files, PNG for better quality
+   • Quality 85 is a good balance for JPEG
+
+⚡ Performance:
+   • More threads = faster conversion (up to CPU limit)
+   • Large PDFs may need more memory
+   • SSD storage helps with temp file operations
+
+🔧 Poppler Setup:
+   • Download from: https://github.com/oschwartz10612/poppler-windows/releases
+   • Extract and add bin/ folder to PATH
+   • Or specify location in Poppler Path field
+
+🔍 Troubleshooting:
+   • Use log file to capture detailed logs
+   • If pdftocairo fails, converter automatically falls back to pdf2image
+   • Check that input PDF is not password protected
+
+📋 Configuration:
+   • Save current settings with 'Save Config' button
+   • Load saved settings with 'Load Config' button
+   • Settings are automatically applied to new conversions"""
+        
+        text_widget.insert(tk.END, hints_content)
+        text_widget.configure(state="disabled")
+        
 
 def main_cli():
     args = parse_args()
