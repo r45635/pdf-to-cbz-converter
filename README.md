@@ -45,7 +45,17 @@ A local advanced converter from PDF to CBZ, with DPI analysis, image format opti
 
 ## 📥 Installation
 
-### 1. Clone this repository
+### Option 1: Download Pre-built Windows Executables (Recommended)
+
+**For Windows users**, download the latest release from the [GitHub Releases page](../../releases):
+- Download `pdf_to_cbz_v{version}_windows.zip`
+- Extract the ZIP file
+- Run `pdf_to_cbz_gui.exe` for the GUI or `pdf_to_cbz_cli.exe` for command line
+- No Python installation required!
+
+### Option 2: Install from Source
+
+#### 1. Clone this repository
 
 ```bash
 git clone https://github.com/your-username/pdf_to_cbz.git
@@ -195,7 +205,25 @@ test_pdf_to_cbz.bat
 
 ---
 
-## 🛠 Dependencies
+## � For Developers: Automated Releases
+
+This repository includes an automated release system using GitHub Actions. See [`AUTOMATED_RELEASES.md`](AUTOMATED_RELEASES.md) for details.
+
+**Quick Release:**
+```powershell
+# Make your changes, then:
+.\release.ps1 -Version "2.1.0" -Message "Add new features"
+```
+
+The system automatically:
+- ✅ Builds Windows executables (CLI + GUI)
+- ✅ Creates source packages for all platforms
+- ✅ Publishes GitHub release with all artifacts
+- ✅ No manual packaging required!
+
+---
+
+## �🛠 Dependencies
 
 - Python ≥ 3.9
 - pdf2image
