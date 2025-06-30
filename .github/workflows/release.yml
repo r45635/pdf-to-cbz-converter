@@ -1,0 +1,167 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v2.0.0, etc.
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Build Windows executables
+      run: |
+        # Build CLI version
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli pdf_to_cbz.py
+        
+        # Build GUI version  
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_gui --windowed pdf_to_cbz_gui.py
+        
+    - name: Create Windows package
+      run: |
+        # Create release directory structure
+        New-Item -ItemType Directory -Force -Path "release\pdf_to_cbz_v${{ github.ref_name }}_windows"
+        
+        # Copy executables
+        Copy-Item "dist\pdf_to_cbz_cli.exe" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "dist\pdf_to_cbz_gui.exe" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        
+        # Copy documentation
+        Copy-Item "README.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "ENHANCED_FEATURES.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "QUICK_START.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "CHANGELOG.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "RELEASE_NOTES.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "LICENSE" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        
+        # Create ZIP package
+        Compress-Archive -Path "release\pdf_to_cbz_v${{ github.ref_name }}_windows\*" -DestinationPath "pdf_to_cbz_v${{ github.ref_name }}_windows.zip"
+        
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-build
+        path: pdf_to_cbz_v${{ github.ref_name }}_windows.zip
+
+  build-source:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create source package
+      run: |
+        # Get version from tag
+        VERSION=${GITHUB_REF#refs/tags/}
+        
+        # Create source directory structure
+        mkdir -p release/pdf_to_cbz_${VERSION}_source
+        
+        # Copy source files (exclude build artifacts and caches)
+        cp -r *.py release/pdf_to_cbz_${VERSION}_source/
+        cp requirements.txt release/pdf_to_cbz_${VERSION}_source/
+        cp *.md release/pdf_to_cbz_${VERSION}_source/
+        cp LICENSE release/pdf_to_cbz_${VERSION}_source/
+        cp *.spec release/pdf_to_cbz_${VERSION}_source/
+        cp *.bat release/pdf_to_cbz_${VERSION}_source/
+        cp *.ps1 release/pdf_to_cbz_${VERSION}_source/
+        cp version_info.txt release/pdf_to_cbz_${VERSION}_source/
+        
+        # Create sample directory if it exists
+        if [ -d "sample_dir" ]; then
+          cp -r sample_dir release/pdf_to_cbz_${VERSION}_source/
+        fi
+        
+        # Create ZIP and tar.gz packages
+        cd release
+        zip -r ../pdf_to_cbz_${VERSION}_source.zip pdf_to_cbz_${VERSION}_source/
+        tar -czf ../pdf_to_cbz_${VERSION}_source.tar.gz pdf_to_cbz_${VERSION}_source/
+        
+    - name: Upload source artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: source-build
+        path: |
+          pdf_to_cbz_v*.zip
+          pdf_to_cbz_v*.tar.gz
+
+  create-release:
+    needs: [build-windows, build-source]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: windows-build
+        
+    - name: Download source artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: source-build
+        
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        
+        # Read release notes from file if it exists, otherwise create generic ones
+        if [ -f "RELEASE_NOTES.md" ]; then
+          NOTES=$(cat RELEASE_NOTES.md)
+        else
+          NOTES="## PDF to CBZ Converter ${VERSION}
+
+        ### What's New
+        - Enhanced PDF to CBZ conversion with improved performance
+        - Advanced configuration management system
+        - Comprehensive help and hints system
+        - Modern GUI with analysis features
+        
+        ### Downloads
+        - **Windows Users**: Download the Windows package below (includes both CLI and GUI executables)
+        - **Developers/Other Platforms**: Download the source package
+        
+        ### Installation
+        - Windows: Extract the ZIP file and run the executables directly
+        - Other platforms: Extract source and run with Python 3.11+
+        
+        For detailed documentation, see the included README.md and ENHANCED_FEATURES.md files."
+        fi
+        
+        # Save to environment for GitHub release
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        echo "$NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: PDF to CBZ Converter ${{ github.ref_name }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+        files: |
+          pdf_to_cbz_v*_windows.zip
+          pdf_to_cbz_v*_source.zip
+          pdf_to_cbz_v*_source.tar.gz
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

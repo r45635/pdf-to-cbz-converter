@@ -14,7 +14,9 @@ with a graphical progress bar. In GUI “Analyse only” mode (or via “Compute
   - Estimated per-page image size at recommended DPI
   - Projected total CBZ size at recommended DPI
 
-Additionally, you can compute these analysis metrics at any time via the "Compute Analysis" button before running.
+Additionally, you can compu    if inp.suffix.lower() != ".pdf":
+        logging.error("Input file is not a PDF: %s", inp)
+        sys.exit(1)these analysis metrics at any time via the "Compute Analysis" button before running.
 """
 import argparse
 import logging
