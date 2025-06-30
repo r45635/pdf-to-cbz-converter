@@ -53,7 +53,7 @@ jobs:
         Compress-Archive -Path "release\pdf_to_cbz_v${{ github.ref_name }}_windows\*" -DestinationPath "pdf_to_cbz_v${{ github.ref_name }}_windows.zip"
         
     - name: Upload Windows artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-build
         path: pdf_to_cbz_v${{ github.ref_name }}_windows.zip
@@ -94,7 +94,7 @@ jobs:
         tar -czf ../pdf_to_cbz_${VERSION}_source.tar.gz pdf_to_cbz_${VERSION}_source/
         
     - name: Upload source artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: source-build
         path: |
@@ -110,12 +110,12 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Download Windows artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: windows-build
         
     - name: Download source artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: source-build
         
