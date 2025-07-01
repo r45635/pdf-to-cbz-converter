@@ -1,5 +1,27 @@
 # Changelog
 
+## [v2.1.0] - 2025-01-05
+
+### 🚀 Major GUI Enhancements
+
+#### Enhanced Preview System
+- **NEW**: Always-visible zoom controls with fixed-size zoom areas above images
+- **NEW**: Selectable zoom levels: "Normal", "Puissant", "Ultra" with keyboard shortcuts (1/2/3)  
+- **NEW**: Help button for zoom modes with detailed explanation dialog
+- **NEW**: Auto-updating preview on page/DPI/quality changes and window resize
+- **NEW**: Improved layout with compact controls and protected info bar
+
+#### Smart Settings Transfer
+- **NEW**: Protocol handler for preview window close with settings transfer prompt
+- **NEW**: "Apply Settings to Main" button in preview window for instant transfer
+- **NEW**: Automatic transfer of DPI, quality, format, and other preview settings to main GUI
+
+#### Enhanced User Experience  
+- **NEW**: Always-visible info bar with file size, per-page size, projected CBZ size, and original PDF size
+- **NEW**: Improved image scaling and padding to prevent UI overlap
+- **NEW**: Better error handling and user feedback throughout the application
+- **IMPROVED**: More responsive and intuitive workflow for preview-to-conversion process
+
 ## [v2.0.0] - 2025-06-29
 
 ### 🚀 Major New Features

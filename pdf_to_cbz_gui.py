@@ -19,19 +19,21 @@ Additionally, you can compu    if inp.suffix.lower() != ".pdf":
         sys.exit(1)these analysis metrics at any time via the "Compute Analysis" button before running.
 """
 import argparse
+import io
 import logging
+import os
 import subprocess
 import sys
-import zipfile
 import tempfile
-import io
-import os
 import threading
+import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
+from PIL import Image, ImageTk, ImageDraw
+from PyPDF2 import PdfReader
+from pdf2image import convert_from_path
 
 # Import our custom modules
 try:
@@ -41,15 +43,13 @@ except ImportError:
     # Fallback if modules aren't available
     ConfigManager = None
 
-from PyPDF2 import PdfReader
-from pdf2image import convert_from_path
 
-
-def setup_logging(logfile: Path | None = None):
+def setup_logging(logfile: Path | None = None, debug: bool = False):
     """
     Configure logging:
       - No logfile: suppress WARNING and below, show only ERROR+ in console.
       - With logfile: write DEBUG+ to file and INFO+ to console.
+      - With debug: set all handlers to DEBUG level.
     """
     root = logging.getLogger()
     # Clear existing handlers
@@ -58,7 +58,8 @@ def setup_logging(logfile: Path | None = None):
 
     # Console handler
     ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.INFO if logfile else logging.ERROR)
+    # If debug is on, we want to see everything on the console.
+    ch.setLevel(logging.DEBUG if debug else (logging.INFO if logfile else logging.ERROR))
     fmt = logging.Formatter("%(asctime)s %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S")
     ch.setFormatter(fmt)
     root.addHandler(ch)
@@ -66,16 +67,18 @@ def setup_logging(logfile: Path | None = None):
     # File handler if requested
     if logfile:
         fh = logging.FileHandler(str(logfile), mode="w", encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
+        fh.setLevel(logging.DEBUG) # Always log debug to file
         fh.setFormatter(fmt)
         root.addHandler(fh)
 
     # Global level
-    root.setLevel(logging.DEBUG if logfile else logging.INFO)
+    root.setLevel(logging.DEBUG) # Always set root to debug
 
-    # If no logfile, disable WARNING and below globally
-    if not logfile:
+    # If no logfile and not in debug, disable WARNING and below globally
+    if not logfile and not debug:
         logging.disable(logging.WARNING)
+    else:
+        logging.disable(logging.NOTSET)
 
 
 def format_size(size_bytes: int) -> str:
@@ -109,17 +112,41 @@ class Converter:
         self.poppler_path = poppler_path
 
     def calculate_clarity_dpi(self) -> int:
+        """
+        Calculate a reasonable DPI.
+        Aims for a target pixel width (e.g., 2000px) for clarity on high-res displays,
+        but enforces a minimum DPI to prevent poor quality for very wide pages.
+        """
         reader = PdfReader(str(self.input_pdf))
-        first = reader.pages[0]
-        width_pt = float(first.mediabox.width)
-        target_width = 2000
-        dpi = int(target_width / width_pt * 72)
-        dpi = max(dpi, 100)
-        logging.info(
-            f"Calculated clarity DPI: {dpi} "
-            f"(target width {target_width}px, page width {width_pt}pt)"
-        )
-        return dpi
+        if not reader.pages:
+            logging.debug("No pages in PDF, returning default DPI 150.")
+            return 150  # Default DPI if no pages
+
+        first_page_width_pt = float(reader.pages[0].mediabox.width)
+        if first_page_width_pt <= 0:
+            logging.debug(f"Invalid page width ({first_page_width_pt}pt), returning default DPI 150.")
+            return 150  # Default for invalid width
+
+        # Constants
+        TARGET_PIXEL_WIDTH = 2000
+        MIN_DPI = 150
+
+        # Page width in inches
+        width_inches = first_page_width_pt / 72
+        logging.debug(f"First page width: {first_page_width_pt:.2f}pt ({width_inches:.2f} inches)")
+
+        # Calculate DPI based on a target pixel width
+        calculated_dpi = int(TARGET_PIXEL_WIDTH / width_inches)
+        logging.debug(f"Calculated DPI based on {TARGET_PIXEL_WIDTH}px target: {calculated_dpi}")
+
+        # Enforce a minimum DPI for quality
+        final_dpi = max(calculated_dpi, MIN_DPI)
+
+        if final_dpi != calculated_dpi:
+            logging.info(f"Calculated DPI ({calculated_dpi}) was below minimum. Using {final_dpi} DPI.")
+        
+        logging.info(f"Recommended DPI for {self.input_pdf.name}: {final_dpi}")
+        return final_dpi
 
     def process_page(self, page_num: int) -> tuple[bytes, str]:
         ext = "jpg" if self.fmt == "jpeg" else "png"
@@ -211,15 +238,34 @@ class Converter:
                 logging.info(f"Created CBZ: {self.output_cbz}")
 
     def analyse(self) -> str:
+        """
+        Provides a detailed analysis of the PDF's page sizes and recommended DPI.
+        """
         reader = PdfReader(str(self.input_pdf))
-        widths = [float(p.mediabox.width) for p in reader.pages]
-        dpi_vals = [int(2000 / w * 72) for w in widths]
+        if not reader.pages:
+            return "PDF has no pages."
+
+        widths_pt = [float(p.mediabox.width) for p in reader.pages]
+        heights_pt = [float(p.mediabox.height) for p in reader.pages]
+        avg_width_pt = sum(widths_pt) / len(widths_pt)
+        avg_height_pt = sum(heights_pt) / len(heights_pt)
+        
+        # Use the same logic as the main DPI calculation function
+        recommended_dpi = self.calculate_clarity_dpi()
+        
+        # Calculate expected dimensions with the recommended DPI
+        first_page_width_in = widths_pt[0] / 72
+        first_page_height_in = heights_pt[0] / 72
+        expected_width_px = int(first_page_width_in * recommended_dpi)
+        expected_height_px = int(first_page_height_in * recommended_dpi)
+
         lines = [
-            "Page widths (pt): " + ", ".join(str(round(w, 1)) for w in widths),
-            "Suggested DPIs: " + ", ".join(str(d) for d in dpi_vals),
-            f"Min DPI: {min(dpi_vals)}",
-            f"Max DPI: {max(dpi_vals)}",
-            f"Avg DPI: {round(sum(dpi_vals) / len(dpi_vals))}",
+            f"Average page size: {avg_width_pt:.1f}pt x {avg_height_pt:.1f}pt",
+            f'First page size: {widths_pt[0]:.1f}pt x {heights_pt[0]:.1f}pt ({first_page_width_in:.2f}" x {first_page_height_in:.2f}")',
+            "",
+            f"Recommended DPI: {recommended_dpi}",
+            "This is based on balancing a target width of ~2000px with a minimum DPI of 150.",
+            f"At {recommended_dpi} DPI, the first page will be approx. {expected_width_px} x {expected_height_px} pixels.",
         ]
         return "\n".join(lines)
 
@@ -253,6 +299,10 @@ def parse_args():
     p.add_argument(
         "--analyse", action="store_true",
         help="Print page-size/DPI analysis and exit"
+    )
+    p.add_argument(
+        "--debug", action="store_true",
+        help="Enable debug logging"
     )
     return p.parse_args()
 
@@ -345,9 +395,14 @@ class PDF2CBZGui:
         tk.Entry(self.root, textvariable=self.logfile_var, width=50).grid(row=7, column=1, **pad)
         tk.Button(self.root, text="Browse...", command=self.browse_logfile).grid(row=7, column=2, **pad)
 
-        # Analyse Checkbox and Compute Analysis Button
+        # Analyse and Debug Checkboxes
+        checkbox_frame = tk.Frame(self.root)
+        checkbox_frame.grid(row=8, column=0, columnspan=2, sticky="w", **pad)
         self.analyse_var = tk.BooleanVar()
-        tk.Checkbutton(self.root, text="Analyse only (no conversion)", variable=self.analyse_var).grid(row=8, column=0, columnspan=2, sticky="w", **pad)
+        tk.Checkbutton(checkbox_frame, text="Analyse only (no conversion)", variable=self.analyse_var).pack(side=tk.LEFT)
+        self.debug_var = tk.BooleanVar()
+        tk.Checkbutton(checkbox_frame, text="Debug Mode", variable=self.debug_var).pack(side=tk.LEFT, padx=10)
+        
         tk.Button(self.root, text="Compute Analysis", command=self.compute_analysis).grid(row=8, column=2, sticky="w", **pad)
 
         # Progress Bar
@@ -371,7 +426,494 @@ class PDF2CBZGui:
         button_frame.grid(row=16, column=0, columnspan=3, pady=10)
         
         tk.Button(button_frame, text="Run", command=self.start_process, bg="lightgreen", width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Preview", command=self.open_preview_window).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Quit", command=self.root.quit, width=10).pack(side=tk.LEFT, padx=5)
+
+    def open_preview_window(self):
+        """Opens a new window to preview conversion settings on a single page."""
+        input_path = self.input_var.get().strip()
+        if not input_path or not Path(input_path).is_file():
+            messagebox.showerror("Error", "Please select a valid input PDF file first.")
+            return
+
+        try:
+            reader = PdfReader(input_path)
+            total_pages = len(reader.pages)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not read PDF: {e}")
+            return
+
+        # Initialize attributes to prevent errors before images are loaded
+        self.full_res_original_pil = None
+        self.full_res_converted_pil = None
+
+        # Create the new window
+        self.preview_window = tk.Toplevel(self.root)
+        self.preview_window.title("Conversion Preview")
+        self.preview_window.geometry("1000x700")
+        
+        # Bind close event to ask about applying settings
+        self.preview_window.protocol("WM_DELETE_WINDOW", self._on_preview_window_close)
+
+        # --- Controls Frame ---
+        controls_frame = tk.Frame(self.preview_window, padx=10, pady=10)
+        controls_frame.pack(fill=tk.X)
+
+        # Page Selection
+        tk.Label(controls_frame, text="Page:").pack(side=tk.LEFT, padx=(0, 5))
+        self.preview_page_var = tk.StringVar(value="1")
+        page_spinbox = tk.Spinbox(
+            controls_frame, from_=1, to=total_pages,
+            textvariable=self.preview_page_var, width=5,
+            command=self._update_preview_images
+        )
+        page_spinbox.pack(side=tk.LEFT, padx=5)
+
+        # DPI
+        tk.Label(controls_frame, text="DPI:").pack(side=tk.LEFT, padx=(10, 5))
+        self.preview_dpi_var = tk.StringVar(value=self.dpi_var.get() or "150")
+        dpi_entry = tk.Entry(controls_frame, textvariable=self.preview_dpi_var, width=5)
+        dpi_entry.pack(side=tk.LEFT, padx=5)
+        dpi_entry.bind('<Return>', lambda e: self._update_preview_images())
+
+        # Quality
+        tk.Label(controls_frame, text="Quality:").pack(side=tk.LEFT, padx=(10, 5))
+        self.preview_quality_var = tk.StringVar(value=self.quality_var.get() or "85")
+        quality_scale = tk.Scale(
+            controls_frame, from_=10, to=100, orient=tk.HORIZONTAL,
+            variable=self.preview_quality_var, length=100,
+            command=lambda x: self.preview_window.after_idle(self._update_preview_images)
+        )
+        quality_scale.pack(side=tk.LEFT, padx=5)
+
+        # Update Button
+        tk.Button(
+            controls_frame, text="Update Preview",
+            command=self._update_preview_images, bg="lightblue"
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # Apply Settings Button
+        tk.Button(
+            controls_frame, text="Apply Settings to Main",
+            command=self._apply_preview_settings_to_main, bg="lightgreen"
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Zoom controls
+        self.zoom_enabled_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            controls_frame, text="Enable Zoom", variable=self.zoom_enabled_var
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # Zoom mode selection
+        tk.Label(controls_frame, text="Zoom:").pack(side=tk.LEFT, padx=(10, 5))
+        self.zoom_mode_var = tk.StringVar(value="Normal")
+        zoom_mode_menu = tk.OptionMenu(controls_frame, self.zoom_mode_var, "Normal", "Puissant", "Ultra",
+                                       command=lambda x: self._update_zoom_mode_display())
+        zoom_mode_menu.pack(side=tk.LEFT, padx=5)
+        tk.Button(controls_frame, text="?", command=self._show_zoom_help, width=2).pack(side=tk.LEFT, padx=2)
+
+
+        # --- Image Frame ---
+        self.image_frame = tk.Frame(self.preview_window)
+        self.image_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))  # Less bottom padding
+        self.image_frame.grid_rowconfigure(2, weight=3)  # Main images get most weight
+        self.image_frame.grid_rowconfigure(0, weight=0, minsize=140)  # Zoom areas reduced height
+        self.image_frame.grid_columnconfigure(0, weight=1)
+        self.image_frame.grid_columnconfigure(1, weight=1)
+
+        # --- Fixed Zoom Areas (above each image) ---
+        # Create zoom areas with fixed size to prevent automatic resizing - reduced height to save space
+        # Use Frame containers with fixed pixel size to contain the zoom Labels
+        self.zoom_frame_orig = tk.Frame(self.image_frame, width=280, height=140, bd=2, relief=tk.RIDGE, bg="white")
+        self.zoom_frame_orig.grid_propagate(False)  # Prevent frame from resizing
+        self.zoom_frame_orig.grid(row=0, column=0, pady=2, padx=5)
+        
+        self.zoom_frame_conv = tk.Frame(self.image_frame, width=280, height=140, bd=2, relief=tk.RIDGE, bg="white")
+        self.zoom_frame_conv.grid_propagate(False)  # Prevent frame from resizing
+        self.zoom_frame_conv.grid(row=0, column=1, pady=2, padx=5)
+        
+        # Create Labels inside the fixed-size frames
+        self.zoom_lens_orig = tk.Label(self.zoom_frame_orig, bg="white", text="Original\nZoom\n(Normal)", anchor="center", font=("Arial", 8))
+        self.zoom_lens_orig.pack(fill=tk.BOTH, expand=True)
+        
+        self.zoom_lens_conv = tk.Label(self.zoom_frame_conv, bg="white", text="Preview\nZoom\n(Normal)", anchor="center", font=("Arial", 8))
+        self.zoom_lens_conv.pack(fill=tk.BOTH, expand=True)
+        
+        # Set the zoom row to have a reduced fixed height
+        self.image_frame.grid_rowconfigure(0, weight=0, minsize=140)
+        
+        self.zoom_lens_orig_image = None # To hold the zoomed original image
+        self.zoom_lens_conv_image = None # To hold the zoomed converted image
+
+        tk.Label(self.image_frame, text="Original (Reference at 300 DPI)", font=("Arial", 10, "bold")).grid(row=1, column=0, pady=(3,1), sticky="s")
+        tk.Label(self.image_frame, text="Preview", font=("Arial", 10, "bold")).grid(row=1, column=1, pady=(3,1), sticky="s")
+
+        self.preview_original_label = tk.Label(self.image_frame, bg="gray90", text="Loading...")
+        self.preview_original_label.grid(row=2, column=0, sticky="nsew", padx=5, pady=(0, 5))  # Add bottom padding
+        self.preview_converted_label = tk.Label(self.image_frame, bg="gray90", text="Loading...")
+        self.preview_converted_label.grid(row=2, column=1, sticky="nsew", padx=5, pady=(0, 5))  # Add bottom padding
+
+        # Bind events for zoom only to the converted (preview) image
+        self.preview_converted_label.bind("<Motion>", self._update_zoom_lens)
+        self.preview_converted_label.bind("<Enter>", self._show_zoom_lens)
+        self.preview_converted_label.bind("<Leave>", self._hide_zoom_lens)
+
+        # Hide the lens if the mouse leaves the entire image frame
+        self.image_frame.bind("<Leave>", self._hide_zoom_lens)
+
+        # Bind window resize event to refresh image display
+        self.preview_window.bind("<Configure>", self._on_window_resize)
+        
+        # Bind keyboard shortcuts for zoom modes
+        self.preview_window.bind("<Key-1>", lambda e: self._set_zoom_mode("Normal"))
+        self.preview_window.bind("<Key-2>", lambda e: self._set_zoom_mode("Puissant"))
+        self.preview_window.bind("<Key-3>", lambda e: self._set_zoom_mode("Ultra"))
+        self.preview_window.focus_set()  # Enable keyboard focus
+
+        # --- Info Frame ---
+        info_frame = tk.Frame(self.preview_window)
+        info_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))  # Add padding above info
+        
+        self.preview_info_label = tk.Label(info_frame, text="Select options and click 'Update Preview'", 
+                                         bd=1, relief=tk.SUNKEN, anchor=tk.W, height=2)  # Fixed height
+        self.preview_info_label.pack(fill=tk.X, padx=5, pady=2)
+
+        # Load initial images
+        self.preview_window.after(100, self._update_preview_images) # Use after to ensure window is drawn
+        # Force zoom areas to maintain fixed size
+        self.preview_window.after(200, self._fix_zoom_area_size)
+
+    def _fix_zoom_area_size(self):
+        """Force zoom areas to maintain their fixed size."""
+        if hasattr(self, 'zoom_frame_orig') and hasattr(self, 'zoom_frame_conv'):
+            self.zoom_frame_orig.config(width=280, height=140)
+            self.zoom_frame_conv.config(width=280, height=140)
+            self.zoom_frame_orig.grid_propagate(False)
+            self.zoom_frame_conv.grid_propagate(False)
+
+    def _on_window_resize(self, event):
+        """Handle window resize events with a delay to avoid excessive refreshing."""
+        # Only handle resize events for the main preview window, not child widgets
+        if event.widget == self.preview_window:
+            # Cancel any pending refresh
+            if hasattr(self, '_resize_after_id'):
+                self.preview_window.after_cancel(self._resize_after_id)
+            # Schedule a delayed refresh
+            self._resize_after_id = self.preview_window.after(300, self._refresh_image_display)
+
+    def _refresh_image_display(self):
+        """Refresh the image display after a window resize."""
+        # Only refresh if we have images and data available
+        if (hasattr(self, 'full_res_original_pil') and hasattr(self, 'full_res_converted_pil') and
+            self.full_res_original_pil and self.full_res_converted_pil and
+            hasattr(self, '_last_file_size')):
+            self._display_images(
+                self.full_res_original_pil, 
+                self.full_res_converted_pil, 
+                self._last_file_size, 
+                self._last_dpi, 
+                self._last_quality
+            )
+
+    def _update_preview_images(self):
+        """Renders and displays the original and converted preview images."""
+        try:
+            page_num = int(self.preview_page_var.get())
+            dpi = int(self.preview_dpi_var.get())
+            quality = int(self.preview_quality_var.get())
+            input_path = self.input_var.get().strip()
+            poppler_path_str = self.poppler_var.get().strip()
+            poppler_path = Path(poppler_path_str) if poppler_path_str else None
+            fmt = self.format_var.get()
+
+            # Run rendering in a separate thread to keep the GUI responsive
+            threading.Thread(
+                target=self._render_and_load_images,
+                args=(input_path, poppler_path, page_num, dpi, quality, fmt),
+                daemon=True
+            ).start()
+
+        except (ValueError, TypeError) as e:
+            self.preview_info_label.config(text=f"Error: Invalid input - {e}")
+        except Exception as e:
+            messagebox.showerror("Preview Error", f"An unexpected error occurred: {e}", parent=self.preview_window)
+
+    def _render_and_load_images(self, input_path, poppler_path, page_num, dpi, quality, fmt):
+        """The actual image rendering logic (to be run in a thread)."""
+        try:
+            # Render original (reference) image at a fixed high DPI
+            original_pil = convert_from_path(
+                input_path, dpi=300, first_page=page_num, last_page=page_num,
+                poppler_path=str(poppler_path) if poppler_path else None
+            )[0]
+
+            # Render preview image with user settings
+            converted_pil = convert_from_path(
+                input_path, dpi=dpi, first_page=page_num, last_page=page_num,
+                fmt=fmt, poppler_path=str(poppler_path) if poppler_path else None
+            )[0]
+
+            # Calculate file size
+            buffer = io.BytesIO()
+            save_kwargs = {"quality": quality} if fmt == "jpeg" else {}
+            converted_pil.save(buffer, format=fmt.upper(), **save_kwargs)
+            file_size = len(buffer.getvalue())
+            
+            # Update GUI on the main thread
+            self.root.after(0, self._display_images, original_pil, converted_pil, file_size, dpi, quality)
+
+        except Exception as e:
+            logging.error(f"Error rendering preview: {e}")
+            self.root.after(0, messagebox.showerror, "Render Error", f"Failed to render page: {e}", parent=self.preview_window)
+
+    def _display_images(self, original_pil, converted_pil, file_size, dpi, quality):
+        """Updates the image labels and info text (must run on main GUI thread)."""
+        # Store full-res images for the zoom feature
+        self.full_res_original_pil = original_pil
+        self.full_res_converted_pil = converted_pil
+        
+        # Store last values for resize refresh
+        self._last_file_size = file_size
+        self._last_dpi = dpi
+        self._last_quality = quality
+
+        # Get available space for both labels
+        orig_w, orig_h = self.preview_original_label.winfo_width(), self.preview_original_label.winfo_height()
+        conv_w, conv_h = self.preview_converted_label.winfo_width(), self.preview_converted_label.winfo_height()
+
+        # Avoid resizing to 1x1 on first load - use consistent dimensions
+        if orig_w < 100 or conv_w < 100: 
+            target_w = 480  # Slightly smaller to ensure info bar stays visible
+        else:
+            target_w = min(orig_w, conv_w)  # Use the smaller width to ensure both fit
+            
+        if orig_h < 100 or conv_h < 100: 
+            target_h = 500  # Reduced height to leave space for info bar
+        else:
+            # Reserve space for info bar at bottom (approximately 40px)
+            target_h = min(orig_h, conv_h) - 40  # Leave space for the info bar
+
+        # Calculate proper aspect ratio scaling for both images to fit the same display size
+        def scale_image_to_fit(img, target_w, target_h):
+            img_w, img_h = img.size
+            scale_w = target_w / img_w
+            scale_h = target_h / img_h
+            scale = min(scale_w, scale_h)  # Use the smaller scale to maintain aspect ratio
+            new_w = int(img_w * scale)
+            new_h = int(img_h * scale)
+            return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        # Scale both images to fit the same display dimensions
+        scaled_original = scale_image_to_fit(original_pil, target_w, target_h)
+        scaled_converted = scale_image_to_fit(converted_pil, target_w, target_h)
+
+        # Keep a reference to the PhotoImage objects to prevent garbage collection
+        self.original_img_tk = ImageTk.PhotoImage(scaled_original)
+        self.converted_img_tk = ImageTk.PhotoImage(scaled_converted)
+
+        self.preview_original_label.config(image=self.original_img_tk, text="")
+        self.preview_converted_label.config(image=self.converted_img_tk, text="")
+
+        # Calculate projection information for total document size
+        try:
+            from PyPDF2 import PdfReader
+            input_path = self.input_var.get().strip()
+            reader = PdfReader(input_path)
+            total_pages = len(reader.pages)
+            
+            # Get the current PDF file size
+            pdf_file_size = Path(input_path).stat().st_size
+            
+            # Calculate projected total size
+            projected_total_size = file_size * total_pages
+            
+            # Calculate size difference vs original at 300 DPI
+            original_size_ratio = (dpi / 300.0) ** 2  # Size scales with DPI squared
+            size_vs_original = f"vs 300 DPI: {original_size_ratio:.1f}x"
+            
+            info_text = (
+                f"PDF: {format_size(pdf_file_size)} | "
+                f"Preview: {converted_pil.width}x{converted_pil.height}px @ {dpi} DPI | "
+                f"Page Size: {format_size(file_size)} ({size_vs_original}) | "
+                f"Est. Total: {format_size(projected_total_size)} ({total_pages} pages) | "
+                f"Original Ref: {original_pil.width}x{original_pil.height}px @ 300 DPI"
+            )
+        except Exception as e:
+            # Fallback to basic info if projection calculation fails
+            info_text = (
+                f"Preview: {converted_pil.width}x{converted_pil.height}px @ {dpi} DPI | "
+                f"Est. Size: {format_size(file_size)} (Quality: {quality}) | "
+                f"Original Ref: {original_pil.width}x{original_pil.height}px @ 300 DPI"
+            )
+        
+        self.preview_info_label.config(text=info_text)
+
+
+    def _show_zoom_lens(self, event):
+        """Enable zoom display and show initial zoom."""
+        if not self.zoom_enabled_var.get():
+            return
+        # Update zoom areas immediately only if we're over an image
+        self._update_zoom_lens(event)
+
+    def _hide_zoom_lens(self, event):
+        """Hide the zoom lens and reset to placeholder."""
+        if not self.zoom_enabled_var.get():
+            return
+        
+        # Reset zoom areas to placeholder text with current zoom mode
+        zoom_mode = self.zoom_mode_var.get()
+        placeholder_text = f"Original\nZoom\n({zoom_mode})"
+        preview_text = f"Preview\nZoom\n({zoom_mode})"
+        
+        self.zoom_lens_orig.config(image="", text=placeholder_text)
+        self.zoom_lens_conv.config(image="", text=preview_text)
+        
+        # Clear image references
+        self.zoom_lens_orig_image = None
+        self.zoom_lens_conv_image = None
+
+    def _update_zoom_lens(self, event):
+        """Update the zoom lens content for both images in fixed positions."""
+        if not self.zoom_enabled_var.get():
+            zoom_mode = self.zoom_mode_var.get()
+            self.zoom_lens_orig.config(image="", text=f"Original\nZoom\n({zoom_mode})")
+            self.zoom_lens_conv.config(image="", text=f"Preview\nZoom\n({zoom_mode})")
+            return
+
+        # Check if we have images to work with
+        if not self.full_res_original_pil or not self.full_res_converted_pil:
+            return
+
+        # Get mouse position relative to the preview label
+        widget = self.preview_converted_label
+        event_x = event.x
+        event_y = event.y
+        
+        # Get widget dimensions
+        widget_w, widget_h = widget.winfo_width(), widget.winfo_height()
+        
+        # Ensure we have valid dimensions
+        if widget_w <= 1 or widget_h <= 1:
+            return
+        
+        # Check if mouse is actually over the image area (not just the label background)
+        # Get the actual image dimensions displayed in the label
+        if hasattr(self, 'converted_img_tk') and self.converted_img_tk:
+            img_display_w = self.converted_img_tk.width()
+            img_display_h = self.converted_img_tk.height()
+            
+            # Calculate the centered position of the image within the label
+            img_offset_x = (widget_w - img_display_w) // 2
+            img_offset_y = (widget_h - img_display_h) // 2
+            
+            # Check if mouse is within the actual image bounds
+            if (event_x < img_offset_x or event_x > img_offset_x + img_display_w or
+                event_y < img_offset_y or event_y > img_offset_y + img_display_h):
+                # Mouse is outside the image area, hide zoom
+                self._hide_zoom_lens(event)
+                return
+            
+            # Adjust coordinates to be relative to the image, not the label
+            event_x -= img_offset_x
+            event_y -= img_offset_y
+            widget_w = img_display_w
+            widget_h = img_display_h
+
+        # Use fixed zoom area dimensions based on the reduced label size
+        zoom_area_w = 280  # Reduced width for consistency
+        zoom_area_h = 140  # Reduced height for consistency
+
+        # --- Calculate crop coordinates based on the preview image ---
+        img_w, img_h = self.full_res_converted_pil.size
+        x_ratio = img_w / widget_w
+        y_ratio = img_h / widget_h
+        source_x = event_x * x_ratio
+        source_y = event_y * y_ratio
+
+        # Calculate zoom area size maintaining aspect ratio of the zoom display area
+        zoom_display_ratio = zoom_area_w / zoom_area_h
+        
+        # Define zoom scale factor based on selected mode (smaller = more zoomed in)
+        zoom_mode = self.zoom_mode_var.get()
+        if zoom_mode == "Normal":
+            zoom_scale = 0.15  # Show 15% of the original image dimension
+        elif zoom_mode == "Puissant":
+            zoom_scale = 0.08  # Show 8% of the original image dimension (plus puissant)
+        elif zoom_mode == "Ultra":
+            zoom_scale = 0.04  # Show 4% of the original image dimension (très puissant)
+        else:
+            zoom_scale = 0.15  # Fallback to normal
+        
+        # Calculate crop size maintaining the zoom area's aspect ratio
+        if zoom_display_ratio > 1:  # Wider than tall
+            crop_height = img_h * zoom_scale
+            crop_width = crop_height * zoom_display_ratio
+        else:  # Taller than wide
+            crop_width = img_w * zoom_scale
+            crop_height = crop_width / zoom_display_ratio
+        
+        # Ensure crop size doesn't exceed image boundaries
+        crop_width = min(crop_width, img_w)
+        crop_height = min(crop_height, img_h)
+        
+        # Calculate crop box centered on mouse position
+        crop_left = max(0, source_x - crop_width / 2)
+        crop_top = max(0, source_y - crop_height / 2)
+        crop_right = min(img_w, source_x + crop_width / 2)
+        crop_bottom = min(img_h, source_y + crop_height / 2)
+
+        # Adjust if we're at the edges
+        if crop_right - crop_left < crop_width:
+            if crop_left == 0:
+                crop_right = min(img_w, crop_left + crop_width)
+            else:
+                crop_left = max(0, crop_right - crop_width)
+                
+        if crop_bottom - crop_top < crop_height:
+            if crop_top == 0:
+                crop_bottom = min(img_h, crop_top + crop_height)
+            else:
+                crop_top = max(0, crop_bottom - crop_height)
+
+        if crop_right <= crop_left or crop_bottom <= crop_top:
+            return
+
+        crop_box = (int(crop_left), int(crop_top), int(crop_right), int(crop_bottom))
+
+        try:
+            # --- Process and display the PREVIEW zoom ---
+            cropped_preview = self.full_res_converted_pil.crop(crop_box)
+            # Resize to fit the zoom display area maintaining aspect ratio
+            zoomed_preview = cropped_preview.resize((zoom_area_w, zoom_area_h), Image.Resampling.NEAREST)
+            
+            self.zoom_lens_conv_image = ImageTk.PhotoImage(zoomed_preview)
+            self.zoom_lens_conv.config(image=self.zoom_lens_conv_image, text="", compound="center")
+
+            # --- Process and display the ORIGINAL zoom ---
+            # Scale the crop box for the original image if its resolution differs
+            orig_img_w, orig_img_h = self.full_res_original_pil.size
+            orig_x_ratio = orig_img_w / img_w
+            orig_y_ratio = orig_img_h / img_h
+
+            orig_crop_left = crop_left * orig_x_ratio
+            orig_crop_top = crop_top * orig_y_ratio
+            orig_crop_right = crop_right * orig_x_ratio
+            orig_crop_bottom = crop_bottom * orig_y_ratio
+
+            orig_crop_box = (int(orig_crop_left), int(orig_crop_top), int(orig_crop_right), int(orig_crop_bottom))
+
+            cropped_original = self.full_res_original_pil.crop(orig_crop_box)
+            zoomed_original = cropped_original.resize((zoom_area_w, zoom_area_h), Image.Resampling.NEAREST)
+            
+            self.zoom_lens_orig_image = ImageTk.PhotoImage(zoomed_original)
+            self.zoom_lens_orig.config(image=self.zoom_lens_orig_image, text="", compound="center")
+            
+        except Exception as e:
+            # Handle any cropping/resizing errors gracefully
+            self.zoom_lens_orig.config(image="", text="Zoom\nError")
+            self.zoom_lens_conv.config(image="", text="Zoom\nError")
+
 
     def browse_input(self):
         path = filedialog.askopenfilename(
@@ -413,6 +955,17 @@ class PDF2CBZGui:
         self.text_area.configure(state="disabled")
         self.text_area.see(tk.END)
 
+    def _validate_and_get_numeric_config(self, var, default_value):
+        """Safely get an integer from a tk.StringVar, falling back to a default."""
+        value_str = var.get().strip()
+        if not value_str or value_str == 'None':
+            return default_value
+        try:
+            return int(value_str)
+        except (ValueError, TypeError):
+            logging.warning(f"Invalid numeric value '{value_str}', using default {default_value}.")
+            return default_value
+
     def compute_analysis(self):
         input_path = self.input_var.get().strip()
         if not input_path:
@@ -428,14 +981,25 @@ class PDF2CBZGui:
         self.text_area.delete(1.0, tk.END)
         self.text_area.configure(state="disabled")
 
+        # Setup logging for analysis
+        debug_mode = self.debug_var.get()
+        logfile_val = self.logfile_var.get().strip()
+        logfile_path = Path(logfile_val) if logfile_val else None
+        setup_logging(logfile_path, debug=debug_mode)
+
         try:
+            quality_val = self._validate_and_get_numeric_config(self.quality_var, 85)
+            threads_val = self._validate_and_get_numeric_config(self.threads_var, os.cpu_count() or 1)
+
+            logging.debug(f"Starting analysis with quality={quality_val}, threads={threads_val}")
+
             conv = Converter(
                 input_pdf=pdf_path,
                 output_cbz=Path(""),  # not used here
                 dpi=None,
                 fmt=self.format_var.get(),
-                quality=int(self.quality_var.get()),
-                threads=int(self.threads_var.get()),
+                quality=quality_val,
+                threads=threads_val,
                 poppler_path=Path(self.poppler_var.get()) if self.poppler_var.get().strip() else None,
             )
             # 1. DPI analysis
@@ -471,7 +1035,7 @@ class PDF2CBZGui:
                 )
                 if images:
                     buf = io.BytesIO()
-                    save_kwargs = {"quality": int(self.quality_var.get())} if self.format_var.get() == "jpeg" else {}
+                    save_kwargs = {"quality": quality_val} if self.format_var.get() == "jpeg" else {}
                     images[0].save(buf, format=self.format_var.get().upper(), **save_kwargs)
                     per_page_bytes = len(buf.getvalue())
                     readable_per_page = format_size(per_page_bytes)
@@ -513,13 +1077,13 @@ class PDF2CBZGui:
 
         fmt_val = self.format_var.get()
         try:
-            quality_val = int(self.quality_var.get())
+            quality_val = self._validate_and_get_numeric_config(self.quality_var, 85)
         except ValueError:
             messagebox.showerror("Error", "Quality must be an integer.")
             return
 
         try:
-            threads_val = int(self.threads_var.get())
+            threads_val = self._validate_and_get_numeric_config(self.threads_var, os.cpu_count() or 1)
         except ValueError:
             messagebox.showerror("Error", "Threads must be an integer.")
             return
@@ -531,6 +1095,10 @@ class PDF2CBZGui:
         logfile_path = Path(logfile_val) if logfile_val else None
 
         analyse_only = self.analyse_var.get()
+        debug_mode = self.debug_var.get()
+
+        # Setup logging
+        setup_logging(logfile_path, debug=debug_mode)
 
         # Clear text area
         self.text_area.configure(state="normal")
@@ -548,7 +1116,7 @@ class PDF2CBZGui:
 
         def run_task():
             try:
-                setup_logging(logfile_path)
+                setup_logging(logfile_path, debug=debug_mode)
                 conv = Converter(
                     input_pdf=pdf_path,
                     output_cbz=cbz_path,
@@ -674,6 +1242,8 @@ Recommendations:
             poppler_path = self.poppler_var.get().strip()
             if poppler_path:
                 self.config_manager.set('poppler_path', poppler_path)
+            else:
+                self.config_manager.set('poppler_path', None)
                 
             self.config_manager.save_config()
             messagebox.showinfo("Success", f"Configuration saved to {self.config_manager.config_path}")
@@ -752,17 +1322,146 @@ Recommendations:
         text_widget.insert(tk.END, hints_content)
         text_widget.configure(state="disabled")
         
+    def _show_zoom_help(self):
+        """Show help about zoom modes."""
+        help_text = """Modes de Zoom Disponibles:
+
+🔍 Normal (15%) - Touche [1]:
+• Zoom modéré pour une vue d'ensemble
+• Idéal pour comparer les détails généraux
+• Montre environ 15% de la zone d'origine
+
+🔍🔍 Puissant (8%) - Touche [2]:
+• Zoom plus fort pour examiner les détails fins
+• Parfait pour vérifier la qualité du texte
+• Montre environ 8% de la zone d'origine
+
+🔍🔍🔍 Ultra (4%) - Touche [3]:
+• Zoom très puissant pour l'inspection pixel par pixel
+• Utile pour analyser la netteté et les artefacts
+• Montre environ 4% de la zone d'origine
+
+⌨️ Raccourcis Clavier:
+• Appuyez sur 1, 2 ou 3 pour changer rapidement de mode
+
+💡 Conseil: 
+Utilisez le mode Normal pour une comparaison générale, 
+Puissant pour vérifier la lisibilité du texte,
+et Ultra pour une analyse détaillée de la qualité."""
+        
+        messagebox.showinfo("Aide - Modes de Zoom", help_text, parent=self.preview_window)
+
+    def _update_zoom_mode_display(self):
+        """Update the zoom area placeholder text to show current zoom mode."""
+        if hasattr(self, 'zoom_lens_orig') and hasattr(self, 'zoom_lens_conv'):
+            zoom_mode = self.zoom_mode_var.get()
+            # Only update if no actual zoom image is currently displayed
+            if not hasattr(self, 'zoom_lens_orig_image') or self.zoom_lens_orig_image is None:
+                self.zoom_lens_orig.config(text=f"Original\nZoom\n({zoom_mode})")
+                self.zoom_lens_conv.config(text=f"Preview\nZoom\n({zoom_mode})")
+
+    def _set_zoom_mode(self, mode):
+        """Set zoom mode and update display."""
+        self.zoom_mode_var.set(mode)
+        self._update_zoom_mode_display()
+
+    def _on_preview_window_close(self):
+        """Handle preview window close event - ask user if they want to apply settings."""
+        # Get current preview settings
+        try:
+            current_dpi = self.preview_dpi_var.get().strip()
+            current_quality = self.preview_quality_var.get().strip()
+            current_page = self.preview_page_var.get().strip()
+            current_format = self.format_var.get()
+            current_zoom_mode = self.zoom_mode_var.get()
+            
+            # Create a summary of current settings
+            settings_summary = f"""Paramètres actuels de prévisualisation:
+
+• DPI: {current_dpi}
+• Qualité JPEG: {current_quality}
+• Format: {current_format.upper()}
+• Page visualisée: {current_page}
+• Mode de zoom: {current_zoom_mode}
+
+Voulez-vous appliquer ces paramètres à l'interface principale ?"""
+
+            # Ask user if they want to apply these settings
+            response = messagebox.askyesnocancel(
+                "Appliquer les paramètres de prévisualisation ?",
+                settings_summary,
+                parent=self.preview_window
+            )
+            
+            if response is True:  # Yes - apply settings
+                self._apply_preview_settings_to_main(show_confirmation=False)
+                messagebox.showinfo(
+                    "Paramètres appliqués",
+                    "Les paramètres de prévisualisation ont été appliqués à l'interface principale.",
+                    parent=self.root
+                )
+                self.preview_window.destroy()
+            elif response is False:  # No - just close
+                self.preview_window.destroy()
+            # If Cancel (None), do nothing - keep window open
+            
+        except Exception as e:
+            # If there's an error getting settings, just close normally
+            print(f"Error getting preview settings: {e}")
+            self.preview_window.destroy()
+
+    def _apply_preview_settings_to_main(self, show_confirmation=True):
+        """Apply current preview settings to the main GUI."""
+        try:
+            # Apply DPI setting
+            preview_dpi = self.preview_dpi_var.get().strip()
+            if preview_dpi:
+                self.dpi_var.set(preview_dpi)
+            
+            # Apply Quality setting
+            preview_quality = self.preview_quality_var.get().strip()
+            if preview_quality:
+                self.quality_var.set(preview_quality)
+            
+            # Format is already shared via self.format_var, so no need to update
+            
+            # Show confirmation message if requested
+            if show_confirmation:
+                messagebox.showinfo(
+                    "Paramètres appliqués",
+                    f"Les paramètres de prévisualisation ont été appliqués à l'interface principale:\n\n"
+                    f"• DPI: {preview_dpi}\n"
+                    f"• Qualité: {preview_quality}\n"
+                    f"• Format: {self.format_var.get().upper()}",
+                    parent=self.preview_window if hasattr(self, 'preview_window') and self.preview_window.winfo_exists() else self.root
+                )
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Erreur",
+                f"Erreur lors de l'application des paramètres: {e}",
+                parent=self.preview_window if hasattr(self, 'preview_window') and self.preview_window.winfo_exists() else self.root
+            )
+
+    def _fix_zoom_area_size(self):
+        """Force zoom areas to maintain their fixed size."""
+        if hasattr(self, 'zoom_frame_orig') and hasattr(self, 'zoom_frame_conv'):
+            self.zoom_frame_orig.config(width=280, height=140)
+            self.zoom_frame_conv.config(width=280, height=140)
+            self.zoom_frame_orig.grid_propagate(False)
+            self.zoom_frame_conv.grid_propagate(False)
+
 
 def main_cli():
     args = parse_args()
-    setup_logging(args.logfile)
+    setup_logging(args.logfile, debug=args.debug)
 
     inp = args.input
     if not inp.is_file():
         logging.error("Input file not found: %s", inp)
         sys.exit(1)
     if inp.suffix.lower() != ".pdf":
-        logging.error("Le fichier source n’est pas un PDF : %s", inp)
+        logging.error("Input file is not a PDF: %s", inp)
         sys.exit(1)
 
     out = args.output or inp.with_suffix(".cbz")

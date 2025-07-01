@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'  # Triggers on version tags like v1.0.0, v2.0.0, etc.
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+    inputs:
+      version:
+        description: 'Version number (e.g., v2.1.0)'
+        required: true
+        default: 'v2.1.0'
+      create_release:
+        description: 'Create GitHub release'
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build-windows:
@@ -13,6 +24,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Set version
+      id: version
+      run: |
+        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+          $VERSION = "${{ github.event.inputs.version }}"
+        } else {
+          $VERSION = "${{ github.ref_name }}"
+        }
+        echo "VERSION=$VERSION" >> $env:GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+        
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -24,39 +46,47 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
         
-    - name: Build Windows executables
+    - name: Build Windows executables with version info
       run: |
-        # Build CLI version
-        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli pdf_to_cbz.py
+        # Build CLI version with version info
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli --version-file=version_info.txt pdf_to_cbz.py
         
-        # Build GUI version  
-        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_gui --windowed pdf_to_cbz_gui.py
+        # Build GUI version with version info
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_gui --windowed --version-file=version_info.txt pdf_to_cbz_gui.py
         
     - name: Create Windows package
       run: |
+        $VERSION = "${{ steps.version.outputs.VERSION }}"
         # Create release directory structure
-        New-Item -ItemType Directory -Force -Path "release\pdf_to_cbz_v${{ github.ref_name }}_windows"
+        New-Item -ItemType Directory -Force -Path "release\pdf_to_cbz_${VERSION}_windows"
         
         # Copy executables
-        Copy-Item "dist\pdf_to_cbz_cli.exe" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "dist\pdf_to_cbz_gui.exe" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        Copy-Item "dist\pdf_to_cbz_cli.exe" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "dist\pdf_to_cbz_gui.exe" "release\pdf_to_cbz_${VERSION}_windows\"
         
-        # Copy documentation
-        Copy-Item "README.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "ENHANCED_FEATURES.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "QUICK_START.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "CHANGELOG.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "RELEASE_NOTES.md" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
-        Copy-Item "LICENSE" "release\pdf_to_cbz_v${{ github.ref_name }}_windows\"
+        # Copy documentation and essential files
+        Copy-Item "README.md" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "ENHANCED_FEATURES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "QUICK_START.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "CHANGELOG.md" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "RELEASE_NOTES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "RELEASE_v2.1.0.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "LICENSE" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "requirements.txt" "release\pdf_to_cbz_${VERSION}_windows\"
+        
+        # Copy sample directory if it exists
+        if (Test-Path "sample_dir") {
+          Copy-Item "sample_dir" "release\pdf_to_cbz_${VERSION}_windows\" -Recurse
+        }
         
         # Create ZIP package
-        Compress-Archive -Path "release\pdf_to_cbz_v${{ github.ref_name }}_windows\*" -DestinationPath "pdf_to_cbz_v${{ github.ref_name }}_windows.zip"
+        Compress-Archive -Path "release\pdf_to_cbz_${VERSION}_windows\*" -DestinationPath "pdf_to_cbz_${VERSION}_windows.zip"
         
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: windows-build
-        path: pdf_to_cbz_v${{ github.ref_name }}_windows.zip
+        path: pdf_to_cbz_v*.zip
 
   build-source:
     runs-on: ubuntu-latest
@@ -65,23 +95,34 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Set version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+      
     - name: Create source package
       run: |
-        # Get version from tag
-        VERSION=${GITHUB_REF#refs/tags/}
+        # Get version from previous step
+        VERSION="${{ steps.version.outputs.VERSION }}"
         
         # Create source directory structure
         mkdir -p release/pdf_to_cbz_${VERSION}_source
         
         # Copy source files (exclude build artifacts and caches)
-        cp -r *.py release/pdf_to_cbz_${VERSION}_source/
+        cp -r *.py release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         cp requirements.txt release/pdf_to_cbz_${VERSION}_source/
-        cp *.md release/pdf_to_cbz_${VERSION}_source/
-        cp LICENSE release/pdf_to_cbz_${VERSION}_source/
-        cp *.spec release/pdf_to_cbz_${VERSION}_source/
-        cp *.bat release/pdf_to_cbz_${VERSION}_source/
-        cp *.ps1 release/pdf_to_cbz_${VERSION}_source/
-        cp version_info.txt release/pdf_to_cbz_${VERSION}_source/
+        cp *.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp LICENSE release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp *.spec release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp *.bat release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp *.ps1 release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp version_info.txt release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         
         # Create sample directory if it exists
         if [ -d "sample_dir" ]; then
@@ -100,14 +141,28 @@ jobs:
         path: |
           pdf_to_cbz_v*.zip
           pdf_to_cbz_v*.tar.gz
+          pdf_to_cbz_v*.zip
+          pdf_to_cbz_v*.tar.gz
 
   create-release:
     needs: [build-windows, build-source]
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      
+    - name: Set version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Creating release for version: $VERSION"
       
     - name: Download Windows artifacts
       uses: actions/download-artifact@v4
@@ -122,29 +177,37 @@ jobs:
     - name: Generate release notes
       id: release_notes
       run: |
-        VERSION=${GITHUB_REF#refs/tags/}
+        VERSION="${{ steps.version.outputs.VERSION }}"
         
-        # Read release notes from file if it exists, otherwise create generic ones
-        if [ -f "RELEASE_NOTES.md" ]; then
+        # Read release notes from files if they exist, otherwise create generic ones
+        if [ -f "RELEASE_v2.1.0.md" ]; then
+          NOTES=$(cat RELEASE_v2.1.0.md)
+        elif [ -f "RELEASE_NOTES.md" ]; then
           NOTES=$(cat RELEASE_NOTES.md)
         else
           NOTES="## PDF to CBZ Converter ${VERSION}
 
-        ### What's New
-        - Enhanced PDF to CBZ conversion with improved performance
-        - Advanced configuration management system
-        - Comprehensive help and hints system
-        - Modern GUI with analysis features
+        ### 🚀 What's New in v2.1.0
+        - **Enhanced Preview System**: Always-visible zoom controls with fixed-size areas
+        - **Smart Zoom Modes**: Normal/Puissant/Ultra levels with keyboard shortcuts (1/2/3)
+        - **Auto-Updating Preview**: Real-time updates on settings changes and window resize
+        - **Settings Transfer**: Apply preview settings to main GUI with one click
+        - **Protected Info Bar**: Always-visible size metrics that never get overlapped
+        - **Improved Layout**: Compact controls and better visual hierarchy
         
-        ### Downloads
+        ### 📦 Downloads
         - **Windows Users**: Download the Windows package below (includes both CLI and GUI executables)
         - **Developers/Other Platforms**: Download the source package
         
-        ### Installation
-        - Windows: Extract the ZIP file and run the executables directly
-        - Other platforms: Extract source and run with Python 3.11+
+        ### 🚀 Installation
+        - **Windows**: Extract the ZIP file and run the executables directly - no Python installation required!
+        - **Other platforms**: Extract source and run with Python 3.11+ (see requirements.txt)
         
-        For detailed documentation, see the included README.md and ENHANCED_FEATURES.md files."
+        ### 📚 Documentation
+        For detailed documentation, see the included README.md and ENHANCED_FEATURES.md files.
+        
+        ### 🔄 Upgrade Notes
+        This release maintains full backward compatibility with v2.0.0 configurations and workflows."
         fi
         
         # Save to environment for GitHub release
@@ -155,7 +218,8 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        name: PDF to CBZ Converter ${{ github.ref_name }}
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: PDF to CBZ Converter ${{ steps.version.outputs.VERSION }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         files: |
           pdf_to_cbz_v*_windows.zip
