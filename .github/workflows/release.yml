@@ -16,6 +16,11 @@ on:
         default: true
         type: boolean
 
+# Grant GITHUB_TOKEN the permissions required for this workflow
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -215,8 +220,27 @@ jobs:
         echo "$NOTES" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
         
+    - name: Check and cleanup existing release
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        
+        # Check if release exists and delete it if it does
+        if gh release view "$VERSION" > /dev/null 2>&1; then
+          echo "Release $VERSION already exists. Deleting it..."
+          gh release delete "$VERSION" --yes || echo "Failed to delete existing release"
+        fi
+        
+        # Check if tag exists and delete it if it does
+        if git rev-parse --verify "refs/tags/$VERSION" > /dev/null 2>&1; then
+          echo "Tag $VERSION already exists. Deleting it..."
+          git tag -d "$VERSION" || echo "Failed to delete local tag"
+          git push --delete origin "$VERSION" || echo "Failed to delete remote tag"
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.VERSION }}
         name: PDF to CBZ Converter ${{ steps.version.outputs.VERSION }}
@@ -227,5 +251,7 @@ jobs:
           pdf_to_cbz_v*_source.tar.gz
         draft: false
         prerelease: false
+        make_latest: true
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
