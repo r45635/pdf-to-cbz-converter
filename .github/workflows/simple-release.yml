@@ -1,0 +1,116 @@
+name: Simple Build and Release
+
+on:
+  workflow_dispatch:  # Manual trigger only for testing
+    inputs:
+      version:
+        description: 'Version number (e.g., v2.1.0)'
+        required: true
+        default: 'v2.1.0'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Build Windows executables
+      run: |
+        # Build CLI version
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli --version-file=version_info.txt pdf_to_cbz.py
+        
+        # Build GUI version
+        pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_gui --windowed --version-file=version_info.txt pdf_to_cbz_gui.py
+        
+    - name: Create release package
+      run: |
+        $VERSION = "${{ github.event.inputs.version }}"
+        
+        # Create release directory
+        New-Item -ItemType Directory -Force -Path "release"
+        
+        # Copy executables
+        Copy-Item "dist\pdf_to_cbz_cli.exe" "release\"
+        Copy-Item "dist\pdf_to_cbz_gui.exe" "release\"
+        
+        # Copy documentation
+        Copy-Item "README.md" "release\"
+        Copy-Item "CHANGELOG.md" "release\"
+        Copy-Item "LICENSE" "release\"
+        if (Test-Path "RELEASE_v2.1.0.md") { Copy-Item "RELEASE_v2.1.0.md" "release\" }
+        if (Test-Path "requirements.txt") { Copy-Item "requirements.txt" "release\" }
+        
+        # Create ZIP package
+        Compress-Archive -Path "release\*" -DestinationPath "pdf_to_cbz_$VERSION`_windows.zip"
+        
+        # List files for verification
+        Write-Host "Created package contents:"
+        Get-ChildItem "release" | Format-Table Name, Length
+        
+    - name: Delete existing release if it exists
+      run: |
+        $VERSION = "${{ github.event.inputs.version }}"
+        try {
+          gh release delete "$VERSION" --yes
+          Write-Host "Deleted existing release $VERSION"
+        } catch {
+          Write-Host "No existing release to delete or deletion failed"
+        }
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+        
+    - name: Create GitHub release with CLI
+      run: |
+        $VERSION = "${{ github.event.inputs.version }}"
+        
+        # Create release notes
+        $NOTES = @"
+        ## PDF to CBZ Converter $VERSION
+        
+        ### 🚀 What's New in v2.1.0
+        - **Enhanced Preview System**: Always-visible zoom controls with fixed-size areas
+        - **Smart Zoom Modes**: Normal/Puissant/Ultra levels with keyboard shortcuts (1/2/3)
+        - **Auto-Updating Preview**: Real-time updates on settings changes and window resize
+        - **Settings Transfer**: Apply preview settings to main GUI with one click
+        - **Protected Info Bar**: Always-visible size metrics that never get overlapped
+        - **Improved Layout**: Compact controls and better visual hierarchy
+        
+        ### 📦 Downloads
+        - **Windows Users**: Download the Windows package (includes both CLI and GUI executables)
+        - **No Python installation required!**
+        
+        ### 🚀 Installation
+        - Extract the ZIP file and run the executables directly
+        - For detailed documentation, see the included README.md file
+        
+        ### 🔄 Upgrade Notes
+        This release maintains full backward compatibility with v2.0.0 configurations and workflows.
+        "@
+        
+        # Save notes to file
+        $NOTES | Out-File -FilePath "release_notes.md" -Encoding UTF8
+        
+        # Create the release
+        gh release create "$VERSION" "pdf_to_cbz_$VERSION`_windows.zip" --title "PDF to CBZ Converter $VERSION" --notes-file "release_notes.md"
+        
+        Write-Host "✅ Successfully created release $VERSION"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
