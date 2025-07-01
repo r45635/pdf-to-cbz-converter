@@ -4,7 +4,7 @@ A local advanced converter from PDF to CBZ, with DPI analysis, image format opti
 
 ![PDF to CBZ Banner](banner.png)
 
-> Version `v2.0.0` – Build `20250629`  
+> Version `v2.1.0` – Build `20250105`  
 > Author: Vincent Cruvellier  
 > Compatible with: Windows (requires Poppler), Python 3.9+
 
@@ -34,7 +34,15 @@ A local advanced converter from PDF to CBZ, with DPI analysis, image format opti
 - ⚡ **Performance Tips**: Threading and memory optimization
 - 🔍 **Troubleshooting Guide**: Common issues and solutions
 
-### NEW: Improved GUI
+### NEW: Advanced GUI Features (v2.1.0)
+- 🔍 **Enhanced Preview System**: Always-visible zoom controls with fixed-size areas
+- 🎯 **Smart Zoom Modes**: Normal/Puissant/Ultra levels with keyboard shortcuts (1/2/3)
+- 🔄 **Auto-Updating Preview**: Real-time updates on settings changes and window resize
+- ⚙️ **Settings Transfer**: Apply preview settings to main GUI with one click
+- 📊 **Protected Info Bar**: Always-visible size metrics that never get overlapped
+- 🎨 **Improved Layout**: Compact controls and better visual hierarchy
+
+### NEW: Improved GUI (v2.0.0)
 - 🖥️ **Enhanced Interface**: Smart tooltips and visual indicators
 - 🎚️ **Quality Slider**: Visual JPEG quality adjustment
 - 🔧 **Config Management**: Save/load settings directly from GUI

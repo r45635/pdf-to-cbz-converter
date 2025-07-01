@@ -1,7 +1,7 @@
-# PDF to CBZ Converter v2.0.0 - Build Script (PowerShell)
+# PDF to CBZ Converter v2.1.0 - Build Script (PowerShell)
 
 Write-Host "=====================================================" -ForegroundColor Cyan
-Write-Host "   PDF to CBZ Converter v2.0.0 - Build Script" -ForegroundColor Cyan
+Write-Host "   PDF to CBZ Converter v2.1.0 - Build Script" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 Write-Host ""
 
