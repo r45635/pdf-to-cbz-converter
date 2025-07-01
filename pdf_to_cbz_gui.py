@@ -164,9 +164,17 @@ class Converter:
                 str(self.input_pdf), prefix,
             ]
             try:
+                # On Windows, prevent subprocess from showing console windows
+                startupinfo = None
+                if os.name == 'nt':
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
+                
                 proc = subprocess.run(
                     cmd, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE, text=True, check=False
+                    stderr=subprocess.PIPE, text=True, check=False,
+                    startupinfo=startupinfo
                 )
                 if proc.returncode == 0:
                     single = os.path.join(td, f"page.{ext}")

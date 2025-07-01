@@ -1,7 +1,7 @@
-# PDF to CBZ Converter v2.1.0 - Build Script (PowerShell)
+# PDF to CBZ Converter v2.1.1 - Build Script (PowerShell)
 
 Write-Host "=====================================================" -ForegroundColor Cyan
-Write-Host "   PDF to CBZ Converter v2.1.0 - Build Script" -ForegroundColor Cyan
+Write-Host "   PDF to CBZ Converter v2.1.1 - Build Script" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -24,10 +24,10 @@ try {
     Write-Host "[5/5] Creating release package..." -ForegroundColor Yellow
     Set-Location "dist"
     
-    if (Test-Path "pdf_to_cbz_v2.0.0.zip") { Remove-Item "pdf_to_cbz_v2.0.0.zip" }
+    if (Test-Path "pdf_to_cbz_v2.1.1.zip") { Remove-Item "pdf_to_cbz_v2.1.1.zip" }
     
     Write-Host "Creating ZIP package..." -ForegroundColor Yellow
-    Compress-Archive -Path "pdf_to_cbz_v2.0.0\*" -DestinationPath "pdf_to_cbz_v2.0.0.zip"
+    Compress-Archive -Path "pdf_to_cbz_v2.0.0\*" -DestinationPath "pdf_to_cbz_v2.1.1.zip"
     
     Set-Location ".."
     
@@ -41,7 +41,7 @@ try {
     Write-Host "  - dist\pdf_to_cbz_v2.0.0\pdf_to_cbz_gui.exe" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Release package created:" -ForegroundColor White
-    Write-Host "  - dist\pdf_to_cbz_v2.0.0.zip" -ForegroundColor Cyan
+    Write-Host "  - dist\pdf_to_cbz_v2.1.1.zip" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "You can now distribute the contents of the dist folder" -ForegroundColor Green
     Write-Host "or the ZIP file to users without Python installed." -ForegroundColor Green
