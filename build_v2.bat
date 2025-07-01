@@ -1,6 +1,6 @@
 @echo off
 echo =====================================================
-echo   PDF to CBZ Converter v2.1.0 - Build Script
+echo   PDF to CBZ Converter v2.1.1 - Build Script
 echo =====================================================
 echo.
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [v2.1.1] - 2025-01-05
+
+### 🐛 Bug Fixes
+
+#### Windows GUI Executable
+- **FIXED**: Eliminated flashing terminal/console windows when using the Windows GUI executable
+- **TECHNICAL**: Added proper subprocess STARTUPINFO configuration with SW_HIDE flag for Windows
+- **IMPACT**: GUI now runs completely silently without any console window interference
+- **SCOPE**: Fix applied to both GUI and CLI code for consistency
+
 ## [v2.1.0] - 2025-01-05
 
 ### 🚀 Major GUI Enhancements
