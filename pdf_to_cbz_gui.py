@@ -2,8 +2,8 @@
 """
 pdf_to_cbz_gui.py
 
-Convert a PDF into a CBZ (ZIP of images) using Poppler’s pdftocairo for rasterization,
-with a fallback to pdf2image, multiprocessing, and in-memory zipping.
+Convert a PDF into a CBZ (ZIP of images) using PyMuPDF (fitz) for rasterization,
+with multiprocessing and in-memory zipping. No external Poppler binaries are required.
 
 Supports both CLI and GUI modes. If run with arguments, operates as a CLI tool
 (similar to pdf_to_cbz.py). If run without arguments, launches a Tkinter-based GUI
@@ -14,9 +14,7 @@ with a graphical progress bar. In GUI “Analyse only” mode (or via “Compute
   - Estimated per-page image size at recommended DPI
   - Projected total CBZ size at recommended DPI
 
-Additionally, you can compu    if inp.suffix.lower() != ".pdf":
-        logging.error("Input file is not a PDF: %s", inp)
-        sys.exit(1)these analysis metrics at any time via the "Compute Analysis" button before running.
+Additionally, you can compute these analysis metrics at any time via the "Compute Analysis" button before running.
 """
 import argparse
 import io
@@ -33,7 +31,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from PIL import Image, ImageTk, ImageDraw
 from PyPDF2 import PdfReader
-from pdf2image import convert_from_path
+import fitz  # PyMuPDF
 
 # Import our custom modules
 try:
@@ -85,11 +83,12 @@ def format_size(size_bytes: int) -> str:
     """
     Convert a size in bytes to a human-readable string.
     """
+    size = float(size_bytes)
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.2f} PB"
+        if size < 1024.0:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} PB"
 
 
 class Converter:
@@ -149,66 +148,26 @@ class Converter:
         return final_dpi
 
     def process_page(self, page_num: int) -> tuple[bytes, str]:
+        """Render a page using PyMuPDF and return encoded image bytes and name."""
         ext = "jpg" if self.fmt == "jpeg" else "png"
-        with tempfile.TemporaryDirectory(prefix="pdf2cbz_") as td:
-            prefix = os.path.join(td, "page")
-            poppler_exe = (
-                (self.poppler_path / ("pdftocairo.exe" if os.name == "nt" else "pdftocairo"))
-                if self.poppler_path else
-                ("pdftocairo.exe" if os.name == "nt" else "pdftocairo")
-            )
-            cmd = [
-                str(poppler_exe),
-                f"-{self.fmt}", "-r", str(self.dpi),
-                "-f", str(page_num), "-l", str(page_num),
-                str(self.input_pdf), prefix,
-            ]
-            try:
-                # On Windows, prevent subprocess from showing console windows
-                startupinfo = None
-                if os.name == 'nt':
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = subprocess.SW_HIDE
-                
-                proc = subprocess.run(
-                    cmd, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE, text=True, check=False,
-                    startupinfo=startupinfo
-                )
-                if proc.returncode == 0:
-                    single = os.path.join(td, f"page.{ext}")
-                    if os.path.exists(single):
-                        data = Path(single).read_bytes()
-                        return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-                    multi = os.path.join(td, f"page-{page_num}.{ext}")
-                    if os.path.exists(multi):
-                        data = Path(multi).read_bytes()
-                        return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-                logging.debug(
-                    f"pdftocairo did not emit an image for page {page_num} "
-                    f"(rc={proc.returncode}). stderr:\n{proc.stderr.strip()}\n"
-                    "Falling back to pdf2image."
-                )
-            except FileNotFoundError:
-                logging.debug(f"pdftocairo not found at {poppler_exe!r}, falling back")
-            except Exception as e:
-                logging.debug(f"pdftocairo crashed: {e}, falling back")
-
-            try:
-                images = convert_from_path(
-                    str(self.input_pdf), dpi=self.dpi,
-                    first_page=page_num, last_page=page_num,
-                    fmt=self.fmt, single_file=False,
-                    poppler_path=str(self.poppler_path) if self.poppler_path else None,
-                )
-                if images:
+        try:
+            assert isinstance(self.dpi, int)
+            with fitz.open(str(self.input_pdf)) as doc:
+                page = doc.load_page(page_num - 1)
+                scale = self.dpi / 72.0
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                if self.fmt == "jpeg":
+                    mode = "RGB" if pix.n == 3 else ("L" if pix.n == 1 else "RGB")
+                    img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
                     buf = io.BytesIO()
-                    save_kwargs = {"quality": self.quality} if self.fmt == "jpeg" else {}
-                    images[0].save(buf, format=self.fmt.upper(), **save_kwargs)
-                    return buf.getvalue(), f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-            except Exception as e:
-                logging.error(f"pdf2image fallback failed on page {page_num}: {e}")
+                    img.save(buf, format="JPEG", quality=self.quality)
+                    data = buf.getvalue()
+                else:
+                    data = pix.tobytes("png")
+                return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
+        except Exception as e:
+            logging.error(f"Rendering failed on page {page_num}: {e}")
         raise FileNotFoundError(f"Unable to render page {page_num}")
 
     def convert(self, progress_callback=None) -> None:
@@ -222,9 +181,18 @@ class Converter:
             futures = {executor.submit(self.process_page, i + 1): i + 1 for i in range(total)}
             completed = 0
             if progress_callback is None:
-                # CLI mode: use tqdm
-                from tqdm import tqdm
-                for fut in tqdm(as_completed(futures), total=total, desc="Converting"):
+                # CLI mode: try tqdm progress, fallback to plain loop
+                import importlib
+                _tqdm = None
+                try:
+                    _tqdm_mod = importlib.import_module("tqdm")
+                    _tqdm = getattr(_tqdm_mod, "tqdm", None)
+                except Exception:
+                    _tqdm = None
+                iterator = as_completed(futures)
+                if _tqdm:
+                    iterator = _tqdm(iterator, total=total, desc="Converting")
+                for fut in iterator:
                     page = futures[fut]
                     try:
                         img_bytes, name = fut.result()
@@ -325,6 +293,12 @@ class PDF2CBZGui:
         self.load_config_values()
         
         self.create_widgets()
+
+        # Install menu and theme support
+        self._theme_mode = tk.StringVar(value="Dark")
+        self._install_menubar()
+        # Apply dark theme on startup (neutral dark palette)
+        self.apply_theme("Dark")
     
     def load_config_values(self):
         """Load default values from configuration."""
@@ -369,7 +343,7 @@ class PDF2CBZGui:
 
         # Format
         tk.Label(self.root, text="Format:").grid(row=3, column=0, sticky="e", **pad)
-        self.format_var = tk.StringVar(value=self.default_format)
+        self.format_var = tk.StringVar(value=str(self.default_format) if self.default_format else 'jpeg')
         format_frame = tk.Frame(self.root)
         format_frame.grid(row=3, column=1, sticky="w", **pad)
         tk.OptionMenu(format_frame, self.format_var, "jpeg", "png").pack(side=tk.LEFT)
@@ -377,7 +351,11 @@ class PDF2CBZGui:
 
         # Quality
         tk.Label(self.root, text="JPEG Quality:").grid(row=4, column=0, sticky="e", **pad)
-        self.quality_var = tk.StringVar(value=str(self.default_quality))
+        try:
+            _q = int(str(self.default_quality).strip()) if self.default_quality is not None else 85
+        except Exception:
+            _q = 85
+        self.quality_var = tk.IntVar(value=_q)
         quality_frame = tk.Frame(self.root)
         quality_frame.grid(row=4, column=1, sticky="w", **pad)
         tk.Entry(quality_frame, textvariable=self.quality_var, width=10).pack(side=tk.LEFT)
@@ -391,8 +369,8 @@ class PDF2CBZGui:
         tk.Entry(threads_frame, textvariable=self.threads_var, width=10).pack(side=tk.LEFT)
         tk.Button(threads_frame, text="Auto", command=self.set_auto_threads, width=6).pack(side=tk.LEFT, padx=5)
 
-        # Poppler Path
-        tk.Label(self.root, text="Poppler Path:").grid(row=6, column=0, sticky="e", **pad)
+        # Poppler Path (legacy, no longer required)
+        tk.Label(self.root, text="Poppler Path (legacy):").grid(row=6, column=0, sticky="e", **pad)
         self.poppler_var = tk.StringVar()
         tk.Entry(self.root, textvariable=self.poppler_var, width=50).grid(row=6, column=1, **pad)
         tk.Button(self.root, text="Browse...", command=self.browse_poppler).grid(row=6, column=2, **pad)
@@ -436,6 +414,167 @@ class PDF2CBZGui:
         tk.Button(button_frame, text="Run", command=self.start_process, bg="lightgreen", width=10).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Preview", command=self.open_preview_window).pack(side=tk.LEFT, padx=5)
         tk.Button(button_frame, text="Quit", command=self.root.quit, width=10).pack(side=tk.LEFT, padx=5)
+
+    def _install_menubar(self):
+        menubar = tk.Menu(self.root)
+
+        # View menu with Theme submenu
+        view_menu = tk.Menu(menubar, tearoff=0)
+        theme_menu = tk.Menu(view_menu, tearoff=0)
+        theme_menu.add_radiobutton(
+            label="Dark",
+            variable=self._theme_mode,
+            value="Dark",
+            command=lambda: self.apply_theme("Dark"),
+        )
+        theme_menu.add_radiobutton(
+            label="Light",
+            variable=self._theme_mode,
+            value="Light",
+            command=lambda: self.apply_theme("Light"),
+        )
+        view_menu.add_cascade(label="Theme", menu=theme_menu)
+        menubar.add_cascade(label="View", menu=view_menu)
+
+        self.root.config(menu=menubar)
+
+    def apply_theme(self, mode: str = "Dark"):
+        """Apply a simple dark/light theme across Tk widgets.
+        Note: Tkinter doesn't use QSS (Qt Style Sheets). We approximate the requested palette.
+        Dark palette: bg primary #121212, bg secondary #1E1E1E, text #EDEDED, accent #4DA3FF
+        """
+        dark = {
+            "bg": "#121212",
+            "panel": "#1E1E1E",
+            "text": "#EDEDED",
+            "accent": "#4DA3FF",
+            "button": "#1E1E1E",
+            "button_hover": "#2A2A2A",
+            "button_active": "#333333",
+            "entry_bg": "#1E1E1E",
+            "entry_fg": "#EDEDED",
+            "select_bg": "#2B6EA6",  # derived from accent for readability
+            "select_fg": "#FFFFFF",
+        }
+        light = {
+            "bg": "#F0F0F0",
+            "panel": "#FFFFFF",
+            "text": "#000000",
+            "accent": "#4DA3FF",
+            "button": "#F5F5F5",
+            "button_hover": "#E8E8E8",
+            "button_active": "#DDDDDD",
+            "entry_bg": "#FFFFFF",
+            "entry_fg": "#000000",
+            "select_bg": "#CCE7FF",
+            "select_fg": "#000000",
+        }
+        theme = dark if mode.lower() == "dark" else light
+
+        # Root and top-levels
+        try:
+            self.root.configure(bg=theme["bg"])
+        except Exception:
+            pass
+
+        # ttk styles (e.g., Progressbar)
+        try:
+            style = ttk.Style(self.root)
+            # Some native themes ignore colors, but we try anyway
+            style.configure("TProgressbar", troughcolor=theme["panel"], background=theme["accent"])
+        except Exception:
+            pass
+
+        # Recursively apply to widgets
+        def apply_to_widget(w):
+            cls = w.__class__
+            # Containers
+            if isinstance(w, (tk.Frame, tk.Toplevel)):
+                safe_config(w, bg=theme["panel"]) if isinstance(w, tk.Frame) else safe_config(w, bg=theme["bg"])
+            # Labels
+            if isinstance(w, tk.Label):
+                safe_config(w, bg=theme["panel"], fg=theme["text"])
+            # Entries / Spinbox
+            if isinstance(w, (tk.Entry, tk.Spinbox)):
+                safe_config(w, bg=theme["entry_bg"], fg=theme["entry_fg"], insertbackground=theme["text"], selectbackground=theme["select_bg"], selectforeground=theme["select_fg"], highlightbackground=theme["panel"], disabledbackground=theme["panel"])
+            # Text/ScrolledText
+            if isinstance(w, (tk.Text, scrolledtext.ScrolledText)):
+                safe_config(w, bg=theme["panel"], fg=theme["text"], insertbackground=theme["text"], selectbackground=theme["select_bg"], selectforeground=theme["select_fg"], highlightbackground=theme["panel"])            
+            # Buttons
+            if isinstance(w, tk.Button):
+                safe_config(w, bg=theme["button"], fg=theme["text"], activebackground=theme["button_active"], activeforeground=theme["text"], highlightbackground=theme["panel"])
+                self._bind_button_hover(w, theme)
+            # Checkbuttons
+            if isinstance(w, tk.Checkbutton):
+                safe_config(w, bg=theme["panel"], fg=theme["text"], activebackground=theme["button_active"], selectcolor=theme["panel"], highlightbackground=theme["panel"])
+            # Scales
+            if isinstance(w, tk.Scale):
+                safe_config(w, bg=theme["panel"], fg=theme["text"], troughcolor=theme["bg"]) if "troughcolor" in w.keys() else safe_config(w, bg=theme["panel"], fg=theme["text"])  
+            # Menubutton/OptionMenu
+            if isinstance(w, tk.Menubutton):
+                safe_config(w, bg=theme["button"], fg=theme["text"], activebackground=theme["button_active"], activeforeground=theme["text"]) 
+                try:
+                    m = w["menu"]
+                    if isinstance(m, tk.Menu):
+                        m.config(bg=theme["panel"], fg=theme["text"], activebackground=theme["button_hover"], activeforeground=theme["text"])
+                except Exception:
+                    pass
+            # Progressbar parent bg
+            if isinstance(w, ttk.Progressbar):
+                try:
+                    w.configure(style="TProgressbar")
+                except Exception:
+                    pass
+
+            # Recurse
+            for child in w.winfo_children():
+                apply_to_widget(child)
+
+        def safe_config(widget, **kwargs):
+            try:
+                widget.configure(**kwargs)
+            except Exception:
+                pass
+
+        apply_to_widget(self.root)
+
+    def _bind_button_hover(self, btn: tk.Button, theme: dict):
+        # Attach hover/press states using event bindings
+        normal_bg = theme["button"]
+        hover_bg = theme["button_hover"]
+        active_bg = theme["button_active"]
+
+        def on_enter(e):
+            try:
+                btn.configure(bg=hover_bg)
+            except Exception:
+                pass
+
+        def on_leave(e):
+            try:
+                btn.configure(bg=normal_bg)
+            except Exception:
+                pass
+
+        def on_press(e):
+            try:
+                btn.configure(bg=active_bg)
+            except Exception:
+                pass
+
+        def on_release(e):
+            try:
+                # Back to hover if pointer is still inside, else normal
+                x, y = btn.winfo_pointerxy()
+                inside = (btn.winfo_rootx() <= x <= btn.winfo_rootx() + btn.winfo_width() and btn.winfo_rooty() <= y <= btn.winfo_rooty() + btn.winfo_height())
+                btn.configure(bg=hover_bg if inside else normal_bg)
+            except Exception:
+                pass
+
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        btn.bind("<ButtonPress-1>", on_press)
+        btn.bind("<ButtonRelease-1>", on_release)
 
     def open_preview_window(self):
         """Opens a new window to preview conversion settings on a single page."""
@@ -486,7 +625,7 @@ class PDF2CBZGui:
 
         # Quality
         tk.Label(controls_frame, text="Quality:").pack(side=tk.LEFT, padx=(10, 5))
-        self.preview_quality_var = tk.StringVar(value=self.quality_var.get() or "85")
+        self.preview_quality_var = tk.IntVar(value=int(self.quality_var.get() or 85))
         quality_scale = tk.Scale(
             controls_frame, from_=10, to=100, orient=tk.HORIZONTAL,
             variable=self.preview_quality_var, length=100,
@@ -591,6 +730,24 @@ class PDF2CBZGui:
         # Force zoom areas to maintain fixed size
         self.preview_window.after(200, self._fix_zoom_area_size)
 
+    def _render_page_pil(self, input_path: str | Path, page_num: int, dpi: int) -> Image.Image:
+        """Render a single PDF page to a PIL Image using PyMuPDF at the given DPI."""
+        try:
+            with fitz.open(str(input_path)) as doc:
+                page = doc.load_page(page_num - 1)
+                scale = dpi / 72.0
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                # Determine PIL mode
+                mode = "RGB"
+                if pix.n == 1:
+                    mode = "L"
+                img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+                return img
+        except Exception as e:
+            logging.error(f"PyMuPDF render failed (page {page_num} @ {dpi} DPI): {e}")
+            raise
+
     def _fix_zoom_area_size(self):
         """Force zoom areas to maintain their fixed size."""
         if hasattr(self, 'zoom_frame_orig') and hasattr(self, 'zoom_frame_conv'):
@@ -649,21 +806,15 @@ class PDF2CBZGui:
     def _render_and_load_images(self, input_path, poppler_path, page_num, dpi, quality, fmt):
         """The actual image rendering logic (to be run in a thread)."""
         try:
-            # Render original (reference) image at a fixed high DPI
-            original_pil = convert_from_path(
-                input_path, dpi=300, first_page=page_num, last_page=page_num,
-                poppler_path=str(poppler_path) if poppler_path else None
-            )[0]
+            # Render original (reference) image at a fixed high DPI using PyMuPDF
+            original_pil = self._render_page_pil(input_path, page_num, 300)
 
-            # Render preview image with user settings
-            converted_pil = convert_from_path(
-                input_path, dpi=dpi, first_page=page_num, last_page=page_num,
-                fmt=fmt, poppler_path=str(poppler_path) if poppler_path else None
-            )[0]
+            # Render preview image with user settings using PyMuPDF
+            converted_pil = self._render_page_pil(input_path, page_num, dpi)
 
             # Calculate file size
             buffer = io.BytesIO()
-            save_kwargs = {"quality": quality} if fmt == "jpeg" else {}
+            save_kwargs = {"quality": int(quality)} if fmt == "jpeg" else {}
             converted_pil.save(buffer, format=fmt.upper(), **save_kwargs)
             file_size = len(buffer.getvalue())
             
@@ -964,14 +1115,27 @@ class PDF2CBZGui:
         self.text_area.see(tk.END)
 
     def _validate_and_get_numeric_config(self, var, default_value):
-        """Safely get an integer from a tk.StringVar, falling back to a default."""
-        value_str = var.get().strip()
-        if not value_str or value_str == 'None':
-            return default_value
+        """Safely get an integer from a tk variable (StringVar/IntVar), falling back to a default."""
         try:
-            return int(value_str)
-        except (ValueError, TypeError):
-            logging.warning(f"Invalid numeric value '{value_str}', using default {default_value}.")
+            value = var.get()
+        except Exception:
+            return default_value
+        if value is None:
+            return default_value
+        # If already numeric (e.g., IntVar), return int directly
+        if isinstance(value, (int, float)):
+            try:
+                return int(value)
+            except Exception:
+                return default_value
+        # Otherwise, treat as string
+        try:
+            s = str(value).strip()
+            if not s or s.lower() == 'none':
+                return default_value
+            return int(s)
+        except Exception:
+            logging.warning(f"Invalid numeric value '{value}', using default {default_value}.")
             return default_value
 
     def compute_analysis(self):
@@ -1032,28 +1196,19 @@ class PDF2CBZGui:
 
             # 5. Estimate per-page image size at recommended DPI
             try:
-                images = convert_from_path(
-                    str(pdf_path),
-                    dpi=recommended_dpi,
-                    first_page=1,
-                    last_page=1,
-                    fmt=self.format_var.get(),
-                    single_file=False,
-                    poppler_path=str(Path(self.poppler_var.get())) if self.poppler_var.get().strip() else None,
-                )
-                if images:
-                    buf = io.BytesIO()
-                    save_kwargs = {"quality": quality_val} if self.format_var.get() == "jpeg" else {}
-                    images[0].save(buf, format=self.format_var.get().upper(), **save_kwargs)
-                    per_page_bytes = len(buf.getvalue())
-                    readable_per_page = format_size(per_page_bytes)
-                    projected_total = per_page_bytes * total_pages
-                    readable_projected = format_size(projected_total)
+                # Render first page via PyMuPDF at recommended DPI
+                img = self._render_page_pil(str(pdf_path), 1, recommended_dpi)
+                buf = io.BytesIO()
+                save_fmt = self.format_var.get().upper()
+                save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
+                img.save(buf, format=save_fmt, **save_kwargs)
+                per_page_bytes = len(buf.getvalue())
+                readable_per_page = format_size(per_page_bytes)
+                projected_total = per_page_bytes * total_pages
+                readable_projected = format_size(projected_total)
 
-                    self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
-                    self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
-                else:
-                    self.append_text("\nUnable to render first page for size estimation.")
+                self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
+                self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
             except Exception as e:
                 logging.error(f"Error during size projection: {e}")
                 self.append_text(f"\nError estimating output size: {e}")
@@ -1154,28 +1309,18 @@ class PDF2CBZGui:
                     self.append_text(f"Total pages: {total_pages}")
 
                     try:
-                        images = convert_from_path(
-                            str(pdf_path),
-                            dpi=recommended_dpi,
-                            first_page=1,
-                            last_page=1,
-                            fmt=fmt_val,
-                            single_file=False,
-                            poppler_path=str(poppler_path) if poppler_path else None,
-                        )
-                        if images:
-                            buf = io.BytesIO()
-                            save_kwargs = {"quality": quality_val} if fmt_val == "jpeg" else {}
-                            images[0].save(buf, format=fmt_val.upper(), **save_kwargs)
-                            per_page_bytes = len(buf.getvalue())
-                            readable_per_page = format_size(per_page_bytes)
-                            projected_total = per_page_bytes * total_pages
-                            readable_projected = format_size(projected_total)
+                        img = self._render_page_pil(str(pdf_path), 1, recommended_dpi)
+                        buf = io.BytesIO()
+                        save_fmt = fmt_val.upper()
+                        save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
+                        img.save(buf, format=save_fmt, **save_kwargs)
+                        per_page_bytes = len(buf.getvalue())
+                        readable_per_page = format_size(per_page_bytes)
+                        projected_total = per_page_bytes * total_pages
+                        readable_projected = format_size(projected_total)
 
-                            self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
-                            self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
-                        else:
-                            self.append_text("\nUnable to render first page for size estimation.")
+                        self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
+                        self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
                     except Exception as e:
                         logging.error(f"Error during size projection: {e}")
                         self.append_text(f"\nError estimating output size: {e}")
@@ -1273,12 +1418,27 @@ Recommendations:
                 self.config_manager.config_path = Path(config_path)
                 self.config_manager.load_config()
                 self.load_config_values()
-                # Update GUI with new values
-                self.dpi_var.set(str(self.default_dpi) if self.default_dpi else "")
-                self.format_var.set(self.default_format)
-                self.quality_var.set(str(self.default_quality))
-                self.threads_var.set(str(self.default_threads))
-                self.poppler_var.set(self.default_poppler_path)
+                # Update GUI with new values (coerce types safely)
+                safe_dpi = ""
+                if isinstance(self.default_dpi, (int, float, str)):
+                    s = str(self.default_dpi).strip()
+                    safe_dpi = s if s else ""
+                safe_format = self.default_format if isinstance(self.default_format, str) and self.default_format else "jpeg"
+                if isinstance(self.default_quality, (int, float, str)):
+                    try:
+                        safe_quality = int(str(self.default_quality).strip())
+                    except Exception:
+                        safe_quality = 85
+                else:
+                    safe_quality = 85
+                safe_threads = str(self.default_threads) if isinstance(self.default_threads, (int, float, str)) else str(os.cpu_count() or 1)
+                safe_poppler = self.default_poppler_path if isinstance(self.default_poppler_path, str) else ""
+
+                self.dpi_var.set(safe_dpi)
+                self.format_var.set(safe_format)
+                self.quality_var.set(safe_quality)
+                self.threads_var.set(safe_threads)
+                self.poppler_var.set(safe_poppler)
                 messagebox.showinfo("Success", f"Configuration loaded from {config_path}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load configuration: {e}")
@@ -1312,10 +1472,9 @@ Recommendations:
    • Large PDFs may need more memory
    • SSD storage helps with temp file operations
 
-🔧 Poppler Setup:
-   • Download from: https://github.com/oschwartz10612/poppler-windows/releases
-   • Extract and add bin/ folder to PATH
-   • Or specify location in Poppler Path field
+🔧 Rasterization:
+    • Uses PyMuPDF (fitz) by default — no external Poppler required
+    • "Poppler Path" is optional legacy support and can be left empty
 
 🔍 Troubleshooting:
    • Use log file to capture detailed logs
@@ -1378,7 +1537,7 @@ et Ultra pour une analyse détaillée de la qualité."""
         # Get current preview settings
         try:
             current_dpi = self.preview_dpi_var.get().strip()
-            current_quality = self.preview_quality_var.get().strip()
+            current_quality = str(self.preview_quality_var.get())
             current_page = self.preview_page_var.get().strip()
             current_format = self.format_var.get()
             current_zoom_mode = self.zoom_mode_var.get()
@@ -1427,9 +1586,12 @@ Voulez-vous appliquer ces paramètres à l'interface principale ?"""
                 self.dpi_var.set(preview_dpi)
             
             # Apply Quality setting
-            preview_quality = self.preview_quality_var.get().strip()
-            if preview_quality:
-                self.quality_var.set(preview_quality)
+            preview_quality = self.preview_quality_var.get()
+            try:
+                q_int = int(preview_quality)
+                self.quality_var.set(q_int)
+            except Exception:
+                pass
             
             # Format is already shared via self.format_var, so no need to update
             

@@ -19,12 +19,12 @@ class ConfigManager:
         "format": "jpeg",
         "quality": 85,
         "threads": None,  # Will use CPU count if None
-        "poppler_path": None,
+    "poppler_path": None,  # legacy, no longer required
         "output_directory": None,
         "auto_output_naming": True,
         "compression_level": 6,
         "preserve_metadata": True,
-        "fallback_to_pdf2image": True,
+    # legacy flag removed; PyMuPDF is used for rendering
         "temp_directory": None,
         "logging": {
             "level": "INFO",
@@ -93,12 +93,12 @@ class ConfigManager:
                 "format": "Output image format: 'jpeg' or 'png'",
                 "quality": "JPEG compression quality (1-100, only applies to JPEG)",
                 "threads": "Number of worker threads (null for CPU count)",
-                "poppler_path": "Path to Poppler bin directory (null for system PATH)",
+                "poppler_path": "[Legacy] Path to Poppler bin directory (not required)",
                 "output_directory": "Default output directory (null for same as input)",
                 "auto_output_naming": "Automatically name output files based on input",
                 "compression_level": "ZIP compression level (0-9)",
                 "preserve_metadata": "Preserve PDF metadata in CBZ comments",
-                "fallback_to_pdf2image": "Use pdf2image if pdftocairo fails",
+                # legacy: pdf2image fallback no longer used
                 "temp_directory": "Custom temporary directory (null for system temp)",
                 "logging": {
                     "level": "Logging level: DEBUG, INFO, WARNING, ERROR",
@@ -127,6 +127,7 @@ class ConfigManager:
         effective['format'] = getattr(args, 'format', None) or self.get('format', 'jpeg')
         effective['quality'] = getattr(args, 'quality', None) or self.get('quality', 85)
         effective['threads'] = getattr(args, 'threads', None) or self.get('threads')
+        # Keep reading legacy poppler_path for UI compatibility, but it is unused in processing
         effective['poppler_path'] = getattr(args, 'poppler_path', None) or self.get('poppler_path')
         effective['output_directory'] = self.get('output_directory')
         

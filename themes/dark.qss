@@ -1,0 +1,84 @@
+/*
+Note: This project uses Tkinter, not Qt; QSS here is provided per request as a reference palette and style guide.
+If you migrate to PyQt/PySide, you can load this QSS directly. For Tkinter, equivalent theming has been applied in code.
+*/
+
+/* Neutral dark palette */
+/* bg-primary: #121212; bg-secondary: #1E1E1E; text: #EDEDED; accent: #4DA3FF */
+
+QWidget {
+  background-color: #121212;
+  color: #EDEDED;
+}
+
+QFrame, QGroupBox, QDockWidget, QMenu, QToolBar {
+  background-color: #1E1E1E;
+}
+
+QPushButton {
+  background-color: #1E1E1E;
+  color: #EDEDED;
+  border: 1px solid #2A2A2A;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+QPushButton:hover {
+  background-color: #2A2A2A;
+}
+QPushButton:pressed {
+  background-color: #333333;
+}
+QPushButton:disabled {
+  color: #888;
+  border-color: #222;
+}
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit, QTextEdit, QComboBox {
+  background-color: #1E1E1E;
+  color: #EDEDED;
+  border: 1px solid #2A2A2A;
+  selection-background-color: #2B6EA6;
+  selection-color: #FFFFFF;
+}
+
+QProgressBar {
+  background-color: #1E1E1E;
+  color: #EDEDED;
+  border: 1px solid #2A2A2A;
+}
+QProgressBar::chunk {
+  background-color: #4DA3FF;
+}
+
+QListView, QTreeView, QTableView {
+  background-color: #1E1E1E;
+  color: #EDEDED;
+  selection-background-color: #2B6EA6;
+  selection-color: #FFFFFF;
+}
+
+QDockWidget::title {
+  background: #1E1E1E;
+  color: #EDEDED;
+  padding: 4px;
+}
+
+/* Menu styles */
+QMenuBar {
+  background: #121212;
+}
+QMenuBar::item {
+  background: transparent;
+  color: #EDEDED;
+}
+QMenuBar::item:selected {
+  background: #2A2A2A;
+}
+
+QMenu {
+  background: #1E1E1E;
+  color: #EDEDED;
+}
+QMenu::item:selected {
+  background: #2A2A2A;
+}

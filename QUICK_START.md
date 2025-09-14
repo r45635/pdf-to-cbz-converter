@@ -5,11 +5,14 @@
 ### 1. Create Your First Configuration
 ```bash
 # Create a sample configuration file
-python config_manager.py
+python pdf_to_cbz.py --create-config
 # This creates ~/.pdf2cbz_config.sample.json
 
 # Copy and customize it
+# Windows
 copy C:\Users\%USERNAME%\.pdf2cbz_config.sample.json C:\Users\%USERNAME%\.pdf2cbz_config.json
+# macOS/Linux
+cp ~/.pdf2cbz_config.sample.json ~/.pdf2cbz_config.json
 ```
 
 ### 2. Get Help and Hints

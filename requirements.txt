@@ -1,4 +1,4 @@
-pdf2image
 Pillow
 PyPDF2
 tqdm
+PyMuPDF
