@@ -2,8 +2,11 @@
 """
 pdf_to_cbz.py
 
-Convert a PDF into a CBZ (ZIP of images) using Poppler’s pdftocairo for rasterization,
-with a fallback to pdf2image, multiprocessing, and in-memory zipping.
+Convert a PDF into a CBZ (ZIP of images) using PyMuPDF (fitz) for rasterization,
+with multiprocessing and in-memory zipping. No external Poppler binaries are required.
+
+Extras:
+- Optional configuration helpers to create a sample config and save current settings.
 """
 import argparse
 import logging
@@ -18,8 +21,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from PyPDF2 import PdfReader
-from pdf2image import convert_from_path
 from tqdm import tqdm
+from PIL import Image
+import fitz  # PyMuPDF
+try:
+    from config_manager import ConfigManager
+except Exception:
+    ConfigManager = None  # Optional for CLI helpers
 
 
 def setup_logging(logfile: Path | None = None):
@@ -90,64 +98,27 @@ class Converter:
     def process_page(self, page_num: int) -> tuple[bytes, str]:
         ext = "jpg" if self.fmt == "jpeg" else "png"
         with tempfile.TemporaryDirectory(prefix="pdf2cbz_") as td:
-            prefix = os.path.join(td, "page")
-            poppler_exe = (
-                (self.poppler_path / ("pdftocairo.exe" if os.name == "nt" else "pdftocairo"))
-                if self.poppler_path else
-                ("pdftocairo.exe" if os.name == "nt" else "pdftocairo")
-            )
-            cmd = [
-                str(poppler_exe),
-                f"-{self.fmt}", "-r", str(self.dpi),
-                "-f", str(page_num), "-l", str(page_num),
-                str(self.input_pdf), prefix,
-            ]
+            # Render using PyMuPDF (no external Poppler dependency)
+            assert isinstance(self.dpi, int)
             try:
-                # On Windows, prevent subprocess from showing console windows
-                startupinfo = None
-                if os.name == 'nt':
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    startupinfo.wShowWindow = subprocess.SW_HIDE
-                
-                proc = subprocess.run(
-                    cmd, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE, text=True, check=False,
-                    startupinfo=startupinfo
-                )
-                if proc.returncode == 0:
-                    single = os.path.join(td, f"page.{ext}")
-                    if os.path.exists(single):
-                        data = Path(single).read_bytes()
-                        return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-                    multi = os.path.join(td, f"page-{page_num}.{ext}")
-                    if os.path.exists(multi):
-                        data = Path(multi).read_bytes()
-                        return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-                logging.debug(
-                    f"pdftocairo did not emit an image for page {page_num} "
-                    f"(rc={proc.returncode}). stderr:\n{proc.stderr.strip()}\n"
-                    "Falling back to pdf2image."
-                )
-            except FileNotFoundError:
-                logging.debug(f"pdftocairo not found at {poppler_exe!r}, falling back")
+                with fitz.open(str(self.input_pdf)) as doc:
+                    page = doc.load_page(page_num - 1)
+                    scale = self.dpi / 72.0
+                    mat = fitz.Matrix(scale, scale)
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    if self.fmt == "jpeg":
+                        # Convert Pixmap to PIL for JPEG encoding and quality control
+                        mode = "RGB"
+                        img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=self.quality)
+                        data = buf.getvalue()
+                    else:
+                        # PNG bytes directly from Pixmap
+                        data = pix.tobytes("png")
+                    return data, f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
             except Exception as e:
-                logging.debug(f"pdftocairo crashed: {e}, falling back")
-
-            try:
-                images = convert_from_path(
-                    str(self.input_pdf), dpi=self.dpi,
-                    first_page=page_num, last_page=page_num,
-                    fmt=self.fmt, single_file=False,
-                    poppler_path=str(self.poppler_path) if self.poppler_path else None,
-                )
-                if images:
-                    buf = io.BytesIO()
-                    save_kwargs = {"quality": self.quality} if self.fmt == "jpeg" else {}
-                    images[0].save(buf, format=self.fmt.upper(), **save_kwargs)
-                    return buf.getvalue(), f"{self.input_pdf.stem}_{page_num:03d}.{ext}"
-            except Exception as e:
-                logging.error(f"pdf2image fallback failed on page {page_num}: {e}")
+                logging.error(f"Rendering failed on page {page_num}: {e}")
         raise FileNotFoundError(f"Unable to render page {page_num}")
 
     def convert(self) -> None:
@@ -181,7 +152,8 @@ class Converter:
 
 def parse_args():
     p = argparse.ArgumentParser(description="Convert PDF to CBZ")
-    p.add_argument("input", type=Path, help="Input PDF file")
+    # Make input optional to allow pure config operations
+    p.add_argument("input", type=Path, nargs="?", help="Input PDF file")
     p.add_argument(
         "-o", "--output", type=Path,
         help="Output CBZ file (defaults to input.cbz)"
@@ -209,6 +181,15 @@ def parse_args():
         "--analyse", action="store_true",
         help="Print page-size/DPI analysis and exit"
     )
+    # Config helpers (optional)
+    p.add_argument(
+        "--create-config", action="store_true",
+        help="Create a sample configuration file in your home directory",
+    )
+    p.add_argument(
+        "--save-config", action="store_true",
+        help="Save current CLI options as your default configuration",
+    )
     return p.parse_args()
 
 
@@ -216,7 +197,35 @@ def main():
     args = parse_args()
     setup_logging(args.logfile)
 
+    # Handle config helper actions first
+    if args.create_config:
+        if not ConfigManager:
+            print("Configuration helper unavailable (missing config_manager).")
+        else:
+            cm = ConfigManager()
+            cm.create_sample_config()
+        # If only creating config, and no input provided, exit here
+        if args.input is None:
+            return
+
+    if args.save_config:
+        if not ConfigManager:
+            print("Configuration helper unavailable (missing config_manager).")
+        else:
+            cm = ConfigManager()
+            # Persist current CLI values as defaults
+            cm.set('dpi', args.dpi)
+            cm.set('format', args.format)
+            cm.set('quality', args.quality)
+            cm.set('threads', args.threads)
+            cm.set('poppler_path', str(args.poppler_path) if args.poppler_path else None)
+            cm.save_config()
+        # Continue with conversion if input is present
+
     inp = args.input
+    if inp is None:
+        logging.error("No input PDF provided. See --help for usage.")
+        sys.exit(2)
     if not inp.is_file():
         logging.error("Input file not found: %s", inp)
         sys.exit(1)

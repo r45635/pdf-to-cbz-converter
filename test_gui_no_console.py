@@ -31,9 +31,11 @@ def test_subprocess_with_hidden_console():
             stderr=subprocess.PIPE, text=True, check=False,
             startupinfo=startupinfo
         )
-        
         print(f"✅ Subprocess completed successfully with return code: {proc.returncode}")
-        print("✅ No console window should have appeared!")
+        if os.name == 'nt':
+            print("✅ No console window should have appeared on Windows!")
+        else:
+            print("ℹ️ No console window is expected on this platform.")
         
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -48,13 +50,15 @@ def test_subprocess_without_hidden_console():
         cmd = ["cmd", "/c", "echo", "test"]
     
     try:
+        if os.name != 'nt':
+            print("(Skipping comparison: console windows typically do not appear on non-Windows platforms.)")
+            return
         proc = subprocess.run(
             cmd, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, text=True, check=False
         )
-        
         print(f"✅ Subprocess completed successfully with return code: {proc.returncode}")
-        print("⚠️  A console window may have briefly appeared!")
+        print("⚠️  On Windows, a console window may have briefly appeared without the hide flags.")
         
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -68,5 +72,8 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 40)
     print("✅ Test completed!")
-    print("If you saw console windows flash during the second test but not the first,")
-    print("the fix is working correctly!")
+    if os.name == 'nt':
+        print("If you saw console windows flash during the second test but not the first,")
+        print("the fix is working correctly!")
+    else:
+        print("This platform doesn't show console windows for subprocesses—test passed by design.")

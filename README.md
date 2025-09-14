@@ -6,7 +6,7 @@ A local advanced converter from PDF to CBZ, with DPI analysis, image format opti
 
 > Version `v2.1.0` – Build `20250105`  
 > Author: Vincent Cruvellier  
-> Compatible with: Windows (requires Poppler), Python 3.9+
+> Compatible with: Windows/macOS/Linux, Python 3.9+
 
 ---
 
@@ -53,21 +53,28 @@ A local advanced converter from PDF to CBZ, with DPI analysis, image format opti
 
 ## 📥 Installation
 
-### Option 1: Download Pre-built Windows Executables (Recommended)
+### Option 1: Download Pre-built Executables (Recommended)
 
-**For Windows users**, download the latest release from the [GitHub Releases page](../../releases):
-- Download `pdf_to_cbz_v{version}_windows.zip`
-- Extract the ZIP file
-- Run `pdf_to_cbz_gui.exe` for the GUI or `pdf_to_cbz_cli.exe` for command line
-- No Python installation required!
+Download the latest release from the [GitHub Releases page](../../releases):
+
+- Windows: download `pdf_to_cbz_v{version}_windows.zip`
+	- Extract the ZIP
+	- Run `pdf_to_cbz_gui.exe` (GUI) or `pdf_to_cbz_cli.exe` (CLI)
+	- No Python installation required
+
+- macOS: download `pdf_to_cbz_v{version}_macos.zip`
+	- Extract the ZIP
+	- GUI: open `pdf_to_cbz_gui.app` (Gatekeeper may require right-click → Open on first run)
+	- CLI: run `./pdf_to_cbz_cli` from Terminal inside the extracted folder
+	- No Poppler or external tools required
 
 ### Option 2: Install from Source
 
 #### 1. Clone this repository
 
 ```bash
-git clone https://github.com/your-username/pdf_to_cbz.git
-cd pdf_to_cbz
+git clone https://github.com/r45635/pdf-to-cbz-converter.git
+cd pdf-to-cbz-converter
 ```
 
 ### 2. Install dependencies
@@ -76,11 +83,9 @@ cd pdf_to_cbz
 pip install -r requirements.txt
 ```
 
-### 3. Install Poppler for Windows
+### 3. No Poppler Required
 
-- Download: https://github.com/oschwartz10612/poppler-windows/releases
-- Add the `bin/` directory to your system `PATH`
-- Or use `--poppler-path` to specify location
+This project now uses PyMuPDF (fitz) for all PDF rasterization. No external Poppler utilities are required on any platform.
 
 ---
 
@@ -174,7 +179,7 @@ python pdf_to_cbz.py book3.pdf
 If you don't want to install Python or dependencies, compile a standalone `.exe`:
 
 ```bash
-pyinstaller --onefile pdf_to_cbz.spec
+pyinstaller --onefile pdf_to_cbz_v2.spec
 ```
 
 Or use the one already in the `dist/` folder:
@@ -183,16 +188,33 @@ Or use the one already in the `dist/` folder:
 pdf_to_cbz.exe sample_dir/ --output-dir out_cbz --auto-dpi
 ```
 
-> Requires Poppler (`pdftoppm.exe`) in system PATH.
+Uses PyMuPDF for rendering (no external Poppler binaries required).
 
 ---
-Or use the all In one already in the `dist (Full Standalone) /` folder:
+Or use the All-In-One already in the `dist (Full Standalone)/` folder:
 
 ```bash
 pdf_to_cbz.exe sample_dir/ --output-dir out_cbz --auto-dpi
 ```
 
-> This Qll In One Version does Requires Poppler (`pdftoppm.exe`) in system PATH.
+This All-In-One version bundles dependencies; no Poppler needed.
+
+---
+
+## 🍎 macOS Executable Version
+
+You can also build a standalone macOS binary with PyInstaller:
+
+```bash
+pip install -r requirements.txt
+pip install pyinstaller
+pyinstaller --onefile --windowed --collect-all fitz --name pdf_to_cbz_gui pdf_to_cbz_gui.py
+pyinstaller --onefile --collect-all fitz --name pdf_to_cbz_cli pdf_to_cbz.py
+```
+
+The GUI build produces an `.app` bundle at `dist/pdf_to_cbz_gui.app`. The CLI produces a single executable at `dist/pdf_to_cbz_cli`.
+
+Note: On first launch, macOS Gatekeeper may block the app; right-click the app and choose `Open` to bypass.
 
 ---
 
@@ -231,12 +253,13 @@ The system automatically:
 
 ---
 
-## �🛠 Dependencies
+## 🛠 Dependencies
 
 - Python ≥ 3.9
-- pdf2image
+- PyMuPDF
 - Pillow
-- Poppler for Windows
+- PyPDF2
+- tqdm
 
 ---
 
