@@ -165,7 +165,7 @@ export async function analyzePdf(pdfBuffer: Buffer): Promise<AnalysisResult> {
 async function renderPages(
   pdfBuffer: Buffer,
   dpi: number
-): Promise<AsyncGenerator<Buffer, void, unknown>> {
+): Promise<AsyncIterable<Buffer>> {
   const { pdf } = await import('pdf-to-img');
   const scale = dpi / 72;
   return pdf(pdfBuffer, { scale });
@@ -315,5 +315,181 @@ export function getDefaultConfig(): ConversionOptions {
     format: 'jpeg',
     quality: 85,
     targetSizeMB: null,
+  };
+}
+
+export interface TestResult {
+  dpi: number;
+  format: 'jpeg' | 'png';
+  quality: number;
+  samplePages: number[];  // Page numbers sampled (1-indexed)
+  samplePageSizes: number[];  // Size in KB for each sampled page
+  avgPageSizeKB: number;
+  estimatedSizeMB: number;
+  renderTimeMs: number;
+}
+
+export interface OptimalParams {
+  dpi: number;
+  format: 'jpeg' | 'png';
+  quality: number;
+  estimatedSizeMB: number;
+  sizeRatio: number;
+  qualityScore: number;
+  reason: string;
+}
+
+/**
+ * Test conversion with specific parameters on sample pages
+ * Returns estimated full conversion size based on samples
+ *
+ * Uses pages at 20%, 40%, 60% of the document for better representation
+ * (avoids covers and back pages which are often different)
+ */
+export async function testConversionParams(
+  pdfBuffer: Buffer,
+  configs: Array<{dpi: number; format: 'jpeg' | 'png'; quality: number}>,
+  analysis: AnalysisResult
+): Promise<TestResult[]> {
+  const { pdf } = await import('pdf-to-img');
+  const results: TestResult[] = [];
+
+  // Select sample pages at 20%, 40%, 60% for better representation
+  // Avoids first/last pages which are often covers with different content
+  const pageCount = analysis.pageCount;
+  const sampleIndices: number[] = [];
+
+  if (pageCount <= 5) {
+    // Test all pages if 5 or fewer
+    for (let i = 0; i < pageCount; i++) sampleIndices.push(i);
+  } else {
+    // Sample at 20%, 40%, 60% of the document
+    sampleIndices.push(Math.floor(pageCount * 0.2));
+    sampleIndices.push(Math.floor(pageCount * 0.4));
+    sampleIndices.push(Math.floor(pageCount * 0.6));
+  }
+
+  for (const config of configs) {
+    const startTime = Date.now();
+    const sampleSizes: number[] = [];
+
+    try {
+      const scale = config.dpi / 72;
+      const pages = await pdf(pdfBuffer, { scale });
+
+      let pageIndex = 0;
+      for await (const pageImage of pages) {
+        if (sampleIndices.includes(pageIndex)) {
+          let imageBuffer: Buffer;
+
+          if (config.format === 'jpeg') {
+            imageBuffer = await sharp(pageImage)
+              .jpeg({ quality: config.quality })
+              .toBuffer();
+          } else {
+            imageBuffer = await sharp(pageImage)
+              .png({ compressionLevel: 6 })
+              .toBuffer();
+          }
+
+          sampleSizes.push(imageBuffer.length);
+        }
+        pageIndex++;
+
+        // Stop early once we have all samples
+        if (sampleSizes.length >= sampleIndices.length) break;
+      }
+
+      const renderTimeMs = Date.now() - startTime;
+      const avgPageSizeBytes = sampleSizes.reduce((a, b) => a + b, 0) / sampleSizes.length;
+      const avgPageSizeKB = avgPageSizeBytes / 1024;
+      const estimatedSizeMB = (avgPageSizeBytes * pageCount) / (1024 * 1024);
+
+      results.push({
+        dpi: config.dpi,
+        format: config.format,
+        quality: config.quality,
+        samplePages: sampleIndices.map(i => i + 1), // Convert to 1-indexed
+        samplePageSizes: sampleSizes.map(s => Math.round(s / 1024)), // KB
+        avgPageSizeKB: Math.round(avgPageSizeKB),
+        estimatedSizeMB: Math.round(estimatedSizeMB * 10) / 10,
+        renderTimeMs,
+      });
+    } catch (error) {
+      console.error(`Test failed for config DPI=${config.dpi}, format=${config.format}:`, error);
+      // Skip failed configs
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Find optimal parameters based on test results
+ * Criteria: Best quality score while keeping size close to original
+ */
+export function findOptimalParams(
+  results: Array<TestResult & { sizeRatio: number; qualityScore: number }>,
+  originalSizeMB: number,
+  nativeDpi: number
+): OptimalParams {
+  if (results.length === 0) {
+    // Fallback defaults
+    return {
+      dpi: nativeDpi,
+      format: 'jpeg',
+      quality: 85,
+      estimatedSizeMB: originalSizeMB,
+      sizeRatio: 1.0,
+      qualityScore: 100,
+      reason: 'Default parameters (no test results)',
+    };
+  }
+
+  // Sort by quality score, then by size proximity to original
+  const sorted = [...results].sort((a, b) => {
+    // Prefer higher quality score
+    if (Math.abs(a.qualityScore - b.qualityScore) > 5) {
+      return b.qualityScore - a.qualityScore;
+    }
+    // Among similar quality, prefer size closest to original
+    return Math.abs(a.sizeRatio - 1) - Math.abs(b.sizeRatio - 1);
+  });
+
+  // Find best match: high quality (>= 90) AND size close to original (0.8x - 1.2x)
+  let best = sorted.find(r =>
+    r.qualityScore >= 90 &&
+    r.sizeRatio >= 0.7 &&
+    r.sizeRatio <= 1.3
+  );
+
+  // If no ideal match, find best quality with acceptable size
+  if (!best) {
+    best = sorted.find(r => r.qualityScore >= 85 && r.sizeRatio <= 1.5);
+  }
+
+  // Fallback to highest quality
+  if (!best) {
+    best = sorted[0];
+  }
+
+  // Determine reason
+  let reason: string;
+  if (best.sizeRatio >= 0.9 && best.sizeRatio <= 1.1) {
+    reason = `Taille identique au PDF (${Math.round(best.sizeRatio * 100)}%), qualite ${best.qualityScore}%`;
+  } else if (best.sizeRatio < 0.9) {
+    reason = `Reduction de ${Math.round((1 - best.sizeRatio) * 100)}%, qualite ${best.qualityScore}%`;
+  } else {
+    reason = `Meilleur compromis trouve, qualite ${best.qualityScore}%`;
+  }
+
+  return {
+    dpi: best.dpi,
+    format: best.format,
+    quality: best.quality,
+    estimatedSizeMB: best.estimatedSizeMB,
+    sizeRatio: best.sizeRatio,
+    qualityScore: best.qualityScore,
+    reason,
   };
 }

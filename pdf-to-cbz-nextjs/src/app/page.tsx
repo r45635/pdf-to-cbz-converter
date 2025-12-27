@@ -16,6 +16,26 @@ interface AnalysisResult {
   nativeDpi: number;
 }
 
+interface OptimalParams {
+  dpi: number;
+  format: 'jpeg' | 'png';
+  quality: number;
+  estimatedSizeMB: number;
+  sizeRatio: number;
+  qualityScore: number;
+  reason: string;
+}
+
+interface TestResult {
+  dpi: number;
+  format: 'jpeg' | 'png';
+  quality: number;
+  avgPageSizeKB: number;
+  estimatedSizeMB: number;
+  sizeRatio: number;
+  qualityScore: number;
+}
+
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -32,9 +52,21 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversionProgress, setConversionProgress] = useState(0);
   const [conversionStatus, setConversionStatus] = useState<string>('');
+
+  // Optimization results
+  const [optimalParams, setOptimalParams] = useState<OptimalParams | null>(null);
+  const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [samplePages, setSamplePages] = useState<number[]>([]);
+  const [showAllResults, setShowAllResults] = useState(false);
+
+  // Optimization progress
+  const [optimizeProgress, setOptimizeProgress] = useState(0);
+  const [optimizeStatus, setOptimizeStatus] = useState('');
+  const [currentTest, setCurrentTest] = useState<{current: number; total: number} | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -239,6 +271,104 @@ export default function Home() {
     }
   }, [file, analysis, effectiveDpi, format, quality]);
 
+  const handleOptimize = useCallback(async () => {
+    if (!file) return;
+
+    setIsOptimizing(true);
+    setError(null);
+    setOptimalParams(null);
+    setTestResults([]);
+    setSamplePages([]);
+    setOptimizeProgress(0);
+    setOptimizeStatus('Starting...');
+    setCurrentTest(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', 'balanced');
+
+      const response = await fetch('/api/optimize-stream', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Optimization failed');
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const intermediateResults: TestResult[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              switch (data.type) {
+                case 'status':
+                  setOptimizeStatus(data.message);
+                  setOptimizeProgress(data.progress || 0);
+                  if (data.samplePages) setSamplePages(data.samplePages);
+                  if (data.totalConfigs) setCurrentTest({ current: 0, total: data.totalConfigs });
+                  break;
+
+                case 'testing':
+                  setOptimizeStatus(data.message);
+                  setOptimizeProgress(data.progress || 0);
+                  setCurrentTest({ current: data.current, total: data.total });
+                  break;
+
+                case 'result':
+                  intermediateResults.push(data.result);
+                  setTestResults([...intermediateResults]);
+                  setOptimizeProgress(data.progress || 0);
+                  break;
+
+                case 'complete':
+                  setOptimalParams(data.optimal);
+                  setTestResults(data.testResults || []);
+                  setSamplePages(data.samplePages || []);
+                  setOptimizeProgress(100);
+                  setOptimizeStatus('Complete!');
+                  setCurrentTest(null);
+                  // Apply optimal parameters
+                  if (data.optimal) {
+                    setDpi(data.optimal.dpi.toString());
+                    setFormat(data.optimal.format);
+                    setQuality(data.optimal.quality);
+                  }
+                  break;
+
+                case 'error':
+                  setOptimizeStatus(data.message);
+                  break;
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Optimization failed');
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [file]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
@@ -348,6 +478,163 @@ export default function Home() {
                     </span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Auto-Optimize Button */}
+            {analysis && (
+              <div className="bg-gradient-to-r from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-purple-400">Auto-Optimization</h3>
+                  <button
+                    onClick={handleOptimize}
+                    disabled={isOptimizing || !file}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-medium transition-colors flex items-center gap-2"
+                  >
+                    {isOptimizing ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Find Optimal
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Tests multiple DPI/quality combinations on sample pages (20%, 40%, 60%) to estimate final size accurately.
+                </p>
+
+                {/* Progress Bar */}
+                {isOptimizing && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-purple-300">{optimizeStatus}</span>
+                      <span className="text-purple-400 font-medium">
+                        {currentTest ? `${currentTest.current}/${currentTest.total}` : `${optimizeProgress}%`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-300"
+                        style={{ width: `${optimizeProgress}%` }}
+                      />
+                    </div>
+                    {testResults.length > 0 && (
+                      <div className="text-xs text-gray-400">
+                        Last: DPI {testResults[testResults.length - 1].dpi}, {testResults[testResults.length - 1].format.toUpperCase()} Q{testResults[testResults.length - 1].quality}% → {testResults[testResults.length - 1].estimatedSizeMB.toFixed(1)}MB
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Optimal Results */}
+                {optimalParams && (
+                  <div className="mt-4 p-3 bg-green-900/30 border border-green-500/30 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="font-semibold text-green-400">Optimal Parameters Found!</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm mb-2">
+                      <div>
+                        <span className="text-gray-400">DPI:</span>
+                        <span className="ml-1 font-medium text-white">{optimalParams.dpi}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Format:</span>
+                        <span className="ml-1 font-medium text-white">{optimalParams.format.toUpperCase()}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Quality:</span>
+                        <span className="ml-1 font-medium text-white">{optimalParams.quality}%</span>
+                      </div>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-gray-400">Size:</span>
+                      <span className={`ml-1 font-medium ${
+                        optimalParams.sizeRatio <= 1.1 ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        ~{optimalParams.estimatedSizeMB.toFixed(1)} MB ({Math.round(optimalParams.sizeRatio * 100)}% of original)
+                      </span>
+                    </div>
+                    <div className="text-sm mt-1">
+                      <span className="text-gray-400">Quality Score:</span>
+                      <span className="ml-1 font-medium text-blue-400">{optimalParams.qualityScore}%</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 italic">{optimalParams.reason}</p>
+                    {samplePages.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Based on pages: {samplePages.join(', ')} (20%, 40%, 60%)
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Show all test results toggle */}
+                {testResults.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      onClick={() => setShowAllResults(!showAllResults)}
+                      className="text-sm text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                    >
+                      <svg className={`w-4 h-4 transition-transform ${showAllResults ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      {showAllResults ? 'Hide' : 'Show'} all {testResults.length} test results
+                    </button>
+
+                    {showAllResults && (
+                      <div className="mt-2 max-h-48 overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="text-gray-400 sticky top-0 bg-gray-800">
+                            <tr>
+                              <th className="text-left py-1">DPI</th>
+                              <th className="text-left py-1">Format</th>
+                              <th className="text-left py-1">Qual</th>
+                              <th className="text-right py-1">Size</th>
+                              <th className="text-right py-1">Ratio</th>
+                              <th className="text-right py-1">Score</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {testResults.slice(0, 20).map((r, i) => (
+                              <tr
+                                key={i}
+                                className={`border-t border-gray-700 cursor-pointer hover:bg-gray-700/50 ${
+                                  optimalParams && r.dpi === optimalParams.dpi && r.format === optimalParams.format && r.quality === optimalParams.quality
+                                    ? 'bg-green-900/30'
+                                    : ''
+                                }`}
+                                onClick={() => {
+                                  setDpi(r.dpi.toString());
+                                  setFormat(r.format);
+                                  setQuality(r.quality);
+                                }}
+                              >
+                                <td className="py-1">{r.dpi}</td>
+                                <td className="py-1">{r.format}</td>
+                                <td className="py-1">{r.quality}%</td>
+                                <td className="py-1 text-right">{r.estimatedSizeMB.toFixed(1)}MB</td>
+                                <td className="py-1 text-right">{Math.round(r.sizeRatio * 100)}%</td>
+                                <td className={`py-1 text-right font-medium ${
+                                  r.qualityScore >= 90 ? 'text-green-400' :
+                                  r.qualityScore >= 80 ? 'text-yellow-400' : 'text-red-400'
+                                }`}>{r.qualityScore}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
