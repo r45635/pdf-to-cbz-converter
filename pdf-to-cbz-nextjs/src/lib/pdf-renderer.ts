@@ -1,98 +1,48 @@
-// PDF renderer using pdfjs-dist + canvas for Vercel compatibility
+// PDF renderer using unpdf (serverless-compatible pdfjs wrapper)
 import './polyfills';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from 'canvas';
-
-// Configure worker for serverless using require.resolve for correct path
-try {
-  const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
-  pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
-} catch {
-  // Fallback if path resolution fails
-  pdfjs.GlobalWorkerOptions.workerSrc = '';
-}
+import { renderPageAsImage, getDocumentProxy } from 'unpdf';
 
 export async function renderPdfPage(
   pdfBuffer: Buffer,
   pageNumber: number,
   scale: number = 1
 ): Promise<Buffer> {
-  // Convert Buffer to Uint8Array for pdfjs compatibility
+  // Convert Buffer to Uint8Array for compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({
-    data,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
+
+  // Render at the specified scale
+  const result = await renderPageAsImage(data, pageNumber, {
+    scale,
+    canvasImport: () => import('@napi-rs/canvas'),
   });
-  const pdf = await loadingTask.promise;
 
-  if (pageNumber < 1 || pageNumber > pdf.numPages) {
-    throw new Error(`Invalid page number: ${pageNumber}`);
-  }
-
-  const page = await pdf.getPage(pageNumber);
-  const viewport = page.getViewport({ scale });
-
-  const canvas = createCanvas(viewport.width, viewport.height);
-  const context = canvas.getContext('2d');
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await page.render({
-    canvasContext: context as any,
-    viewport,
-  } as any).promise;
-
-  page.cleanup();
-  await pdf.cleanup();
-
-  return canvas.toBuffer('image/png');
+  return Buffer.from(result);
 }
 
 export async function* renderAllPages(
   pdfBuffer: Buffer,
   scale: number = 1
 ): AsyncGenerator<Buffer> {
-  // Convert Buffer to Uint8Array for pdfjs compatibility
+  // Convert Buffer to Uint8Array for compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({
-    data,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  });
-  const pdf = await loadingTask.promise;
+  const pdf = await getDocumentProxy(data);
+  const numPages = pdf.numPages;
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale });
+  for (let i = 1; i <= numPages; i++) {
+    const result = await renderPageAsImage(pdf, i, {
+      scale,
+      canvasImport: () => import('@napi-rs/canvas'),
+    });
 
-    const canvas = createCanvas(viewport.width, viewport.height);
-    const context = canvas.getContext('2d');
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await page.render({
-      canvasContext: context as any,
-      viewport,
-    } as any).promise;
-
-    page.cleanup();
-    yield canvas.toBuffer('image/png');
+    yield Buffer.from(result);
   }
 
   await pdf.cleanup();
 }
 
 export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
-  // Convert Buffer to Uint8Array for pdfjs compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({
-    data,
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: true,
-  });
-  const pdf = await loadingTask.promise;
+  const pdf = await getDocumentProxy(data);
   const count = pdf.numPages;
   await pdf.cleanup();
   return count;

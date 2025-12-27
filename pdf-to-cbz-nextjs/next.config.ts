@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     },
   },
   // External packages for server-side rendering
-  serverExternalPackages: ['canvas', 'sharp', 'pdfjs-dist'],
+  serverExternalPackages: ['canvas', 'sharp', 'pdfjs-dist', '@napi-rs/canvas', 'unpdf'],
   // Empty turbopack config to satisfy Next.js 16
   turbopack: {},
   // Webpack config for pdfjs worker

@@ -23,12 +23,13 @@ export async function GET() {
     checks.pdfjs = `ERROR: ${e}`;
   }
 
-  // Test custom pdf-renderer (pdfjs + canvas)
+  // Test unpdf (serverless-compatible PDF rendering)
   try {
-    const { getPdfPageCount } = await import('@/lib/pdf-renderer');
-    checks['pdf-renderer'] = `OK (using pdfjs + canvas)`;
+    await import('unpdf');
+    await import('@napi-rs/canvas');
+    checks['unpdf'] = `OK (serverless-compatible)`;
   } catch (e) {
-    checks['pdf-renderer'] = `ERROR: ${e}`;
+    checks['unpdf'] = `ERROR: ${e}`;
   }
 
   return NextResponse.json({
