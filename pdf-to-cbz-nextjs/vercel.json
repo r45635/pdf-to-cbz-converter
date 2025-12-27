@@ -1,10 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["cdg1"],
-  "functions": {
-    "app/api/**/*.ts": {
-      "maxDuration": 300
-    }
-  }
+  "regions": ["cdg1"]
 }

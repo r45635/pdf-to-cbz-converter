@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Standalone output for Vercel
-  output: 'standalone',
   // Allow larger file uploads (50MB)
   experimental: {
     serverActions: {
