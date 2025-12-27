@@ -2,15 +2,23 @@
 import './polyfills';
 import { createCanvas } from 'canvas';
 
-// Configure pdfjs for serverless (no worker)
+// Configure pdfjs for serverless (with worker path)
 const getPdfjs = async () => {
   // Use the legacy build which has fewer requirements
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
-  // Set up a fake worker to prevent worker loading
-  // This makes pdfjs run synchronously in the main thread
+  // Set up worker path using require.resolve to get the actual file location
   if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
-    pdfjs.GlobalWorkerOptions.workerSrc = '';
+    try {
+      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
+    } catch {
+      // Fallback if require.resolve fails
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/legacy/build/pdf.worker.mjs',
+        import.meta.url
+      ).href;
+    }
   }
 
   return pdfjs;

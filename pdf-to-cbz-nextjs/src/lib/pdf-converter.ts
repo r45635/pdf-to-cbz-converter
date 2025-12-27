@@ -10,7 +10,15 @@ import { PassThrough } from 'stream';
 const getPdfjs = async () => {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
-    pdfjs.GlobalWorkerOptions.workerSrc = '';
+    try {
+      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
+    } catch {
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/legacy/build/pdf.worker.mjs',
+        import.meta.url
+      ).href;
+    }
   }
   return pdfjs;
 };
