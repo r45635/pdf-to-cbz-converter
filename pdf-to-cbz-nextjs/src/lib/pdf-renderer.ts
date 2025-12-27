@@ -3,8 +3,14 @@ import './polyfills';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from 'canvas';
 
-// Disable worker for serverless environment
-pdfjs.GlobalWorkerOptions.workerSrc = '';
+// Configure worker for serverless using require.resolve for correct path
+try {
+  const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
+} catch {
+  // Fallback if path resolution fails
+  pdfjs.GlobalWorkerOptions.workerSrc = '';
+}
 
 export async function renderPdfPage(
   pdfBuffer: Buffer,
