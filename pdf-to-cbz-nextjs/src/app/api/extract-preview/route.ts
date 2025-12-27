@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import '@/lib/polyfills';
 import sharp from 'sharp';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// Disable worker for serverless environment
-pdfjs.GlobalWorkerOptions.workerSrc = '';
+// Helper to get pdfjs from unpdf (serverless-compatible)
+const getPdfjs = async () => {
+  const pdfjs = await import('unpdf/pdfjs');
+  return pdfjs;
+};
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -28,14 +30,10 @@ export async function POST(request: NextRequest) {
 
     // Try direct extraction first
     try {
-      // Convert Buffer to Uint8Array for pdfjs compatibility
+      // Get pdfjs from unpdf (serverless-compatible)
+      const pdfjs = await getPdfjs();
       const pdfData = new Uint8Array(pdfBuffer);
-      const loadingTask = pdfjs.getDocument({
-        data: pdfData,
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        useSystemFonts: true,
-      });
+      const loadingTask = pdfjs.getDocument({ data: pdfData });
       const pdf = await loadingTask.promise;
 
       if (pageNum < 1 || pageNum > pdf.numPages) {

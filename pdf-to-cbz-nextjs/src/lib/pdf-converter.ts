@@ -5,10 +5,12 @@ import sharp from 'sharp';
 import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// Disable worker for serverless environment
-pdfjs.GlobalWorkerOptions.workerSrc = '';
+// Helper to get pdfjs from unpdf (serverless-compatible)
+const getPdfjs = async () => {
+  const pdfjs = await import('unpdf/pdfjs');
+  return pdfjs;
+};
 
 export interface ConversionOptions {
   dpi?: number | null;
@@ -529,14 +531,10 @@ export async function extractImagesFromPdf(
   let totalSize = 0;
 
   try {
-    // Load PDF with pdfjs (convert Buffer to Uint8Array for compatibility)
+    // Load PDF with pdfjs from unpdf (serverless-compatible)
+    const pdfjs = await getPdfjs();
     const data = new Uint8Array(pdfBuffer);
-    const loadingTask = pdfjs.getDocument({
-      data,
-      useWorkerFetch: false,
-      isEvalSupported: false,
-      useSystemFonts: true,
-    });
+    const loadingTask = pdfjs.getDocument({ data });
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages;
 
