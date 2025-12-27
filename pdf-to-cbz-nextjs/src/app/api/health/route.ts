@@ -23,12 +23,11 @@ export async function GET() {
     checks.pdfjs = `ERROR: ${e}`;
   }
 
-  // Test unpdf + node-canvas (serverless-compatible PDF rendering)
+  // Test unpdf/pdfjs + node-canvas (serverless-compatible PDF rendering)
   try {
-    const { getResolvedPDFJS } = await import('unpdf');
-    await getResolvedPDFJS();
-    const canvasModule = await import('canvas');
-    checks['pdf-render'] = `OK (unpdf + node-canvas)`;
+    await import('unpdf/pdfjs');
+    await import('canvas');
+    checks['pdf-render'] = `OK (unpdf/pdfjs + node-canvas)`;
   } catch (e) {
     checks['pdf-render'] = `ERROR: ${e}`;
   }

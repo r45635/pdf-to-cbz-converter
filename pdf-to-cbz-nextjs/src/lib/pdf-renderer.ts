@@ -1,14 +1,19 @@
-// PDF renderer using unpdf's pdfjs with node-canvas for Vercel
+// PDF renderer using unpdf's bundled pdfjs with node-canvas for Vercel
 import './polyfills';
-import { getResolvedPDFJS } from 'unpdf';
 import { createCanvas } from 'canvas';
+
+// Import pdfjs from unpdf's bundled version (includes polyfills for serverless)
+const getPdfjs = async () => {
+  const pdfjs = await import('unpdf/pdfjs');
+  return pdfjs;
+};
 
 export async function renderPdfPage(
   pdfBuffer: Buffer,
   pageNumber: number,
   scale: number = 1
 ): Promise<Buffer> {
-  const pdfjs = await getResolvedPDFJS();
+  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
   const loadingTask = pdfjs.getDocument({ data });
@@ -40,7 +45,7 @@ export async function* renderAllPages(
   pdfBuffer: Buffer,
   scale: number = 1
 ): AsyncGenerator<Buffer> {
-  const pdfjs = await getResolvedPDFJS();
+  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
   const loadingTask = pdfjs.getDocument({ data });
@@ -67,7 +72,7 @@ export async function* renderAllPages(
 }
 
 export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
-  const pdfjs = await getResolvedPDFJS();
+  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
   const loadingTask = pdfjs.getDocument({ data });
