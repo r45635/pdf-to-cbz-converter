@@ -3,6 +3,9 @@ import './polyfills';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from 'canvas';
 
+// Disable worker for serverless environment
+pdfjs.GlobalWorkerOptions.workerSrc = '';
+
 export async function renderPdfPage(
   pdfBuffer: Buffer,
   pageNumber: number,

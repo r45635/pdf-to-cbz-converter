@@ -7,6 +7,9 @@ import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
+// Disable worker for serverless environment
+pdfjs.GlobalWorkerOptions.workerSrc = '';
+
 export interface ConversionOptions {
   dpi?: number | null;
   format?: 'jpeg' | 'png';

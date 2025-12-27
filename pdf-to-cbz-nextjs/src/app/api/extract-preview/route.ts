@@ -3,6 +3,9 @@ import '@/lib/polyfills';
 import sharp from 'sharp';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
+// Disable worker for serverless environment
+pdfjs.GlobalWorkerOptions.workerSrc = '';
+
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
