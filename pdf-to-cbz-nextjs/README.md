@@ -2,6 +2,8 @@
 
 A modern web-based PDF to CBZ converter built with Next.js 16, TypeScript, and Tailwind CSS.
 
+**Live Demo:** [https://pdf-to-cbz-converter.vercel.app](https://pdf-to-cbz-converter.vercel.app)
+
 ## Features
 
 - **Live Preview**: Real-time page preview with adjustable parameters

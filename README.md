@@ -2,6 +2,8 @@
 
 Convert PDF files to CBZ format for comic book readers. This repository contains two implementations:
 
+**Live Demo:** [https://pdf-to-cbz-converter.vercel.app](https://pdf-to-cbz-converter.vercel.app)
+
 ## Projects
 
 ### [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) - Web Application
