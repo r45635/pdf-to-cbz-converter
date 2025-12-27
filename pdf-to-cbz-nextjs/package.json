@@ -15,7 +15,7 @@
     "next": "16.1.1",
     "pdf-lib": "^1.17.1",
     "pdf-to-img": "^5.0.0",
-    "pdfjs-dist": "^5.4.449",
+    "pdfjs-dist": "^4.3.136",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sharp": "^0.34.5",
