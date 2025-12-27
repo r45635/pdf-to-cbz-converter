@@ -23,12 +23,12 @@ export async function GET() {
     checks.pdfjs = `ERROR: ${e}`;
   }
 
-  // Test pdf-to-img
+  // Test custom pdf-renderer (pdfjs + canvas)
   try {
-    await import('pdf-to-img');
-    checks['pdf-to-img'] = 'OK';
+    const { getPdfPageCount } = await import('@/lib/pdf-renderer');
+    checks['pdf-renderer'] = `OK (using pdfjs + canvas)`;
   } catch (e) {
-    checks['pdf-to-img'] = `ERROR: ${e}`;
+    checks['pdf-renderer'] = `ERROR: ${e}`;
   }
 
   return NextResponse.json({
