@@ -23,13 +23,14 @@ export async function GET() {
     checks.pdfjs = `ERROR: ${e}`;
   }
 
-  // Test unpdf (serverless-compatible PDF rendering)
+  // Test unpdf + node-canvas (serverless-compatible PDF rendering)
   try {
-    await import('unpdf');
-    await import('@napi-rs/canvas');
-    checks['unpdf'] = `OK (serverless-compatible)`;
+    const { getResolvedPDFJS } = await import('unpdf');
+    await getResolvedPDFJS();
+    const canvasModule = await import('canvas');
+    checks['pdf-render'] = `OK (unpdf + node-canvas)`;
   } catch (e) {
-    checks['unpdf'] = `ERROR: ${e}`;
+    checks['pdf-render'] = `ERROR: ${e}`;
   }
 
   return NextResponse.json({

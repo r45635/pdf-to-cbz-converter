@@ -1,6 +1,6 @@
-// PDF renderer using unpdf with node-canvas for Vercel
+// PDF renderer using unpdf's pdfjs with node-canvas for Vercel
 import './polyfills';
-import { getDocumentProxy } from 'unpdf';
+import { getResolvedPDFJS } from 'unpdf';
 import { createCanvas } from 'canvas';
 
 export async function renderPdfPage(
@@ -8,8 +8,11 @@ export async function renderPdfPage(
   pageNumber: number,
   scale: number = 1
 ): Promise<Buffer> {
+  const pdfjs = await getResolvedPDFJS();
   const data = new Uint8Array(pdfBuffer);
-  const pdf = await getDocumentProxy(data);
+
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
 
   if (pageNumber < 1 || pageNumber > pdf.numPages) {
     throw new Error(`Invalid page number: ${pageNumber}`);
@@ -37,8 +40,11 @@ export async function* renderAllPages(
   pdfBuffer: Buffer,
   scale: number = 1
 ): AsyncGenerator<Buffer> {
+  const pdfjs = await getResolvedPDFJS();
   const data = new Uint8Array(pdfBuffer);
-  const pdf = await getDocumentProxy(data);
+
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -61,8 +67,11 @@ export async function* renderAllPages(
 }
 
 export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
+  const pdfjs = await getResolvedPDFJS();
   const data = new Uint8Array(pdfBuffer);
-  const pdf = await getDocumentProxy(data);
+
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
   const count = pdf.numPages;
   await pdf.cleanup();
   return count;
