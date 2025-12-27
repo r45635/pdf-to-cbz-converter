@@ -6,9 +6,12 @@ import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
 
-// Helper to get pdfjs from unpdf (serverless-compatible)
+// Helper to get pdfjs (serverless-compatible)
 const getPdfjs = async () => {
-  const pdfjs = await import('unpdf/pdfjs');
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
+    pdfjs.GlobalWorkerOptions.workerSrc = '';
+  }
   return pdfjs;
 };
 

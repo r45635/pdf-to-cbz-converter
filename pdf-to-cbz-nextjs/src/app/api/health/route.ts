@@ -23,11 +23,11 @@ export async function GET() {
     checks.pdfjs = `ERROR: ${e}`;
   }
 
-  // Test unpdf/pdfjs + node-canvas (serverless-compatible PDF rendering)
+  // Test pdfjs-dist + node-canvas (serverless-compatible PDF rendering)
   try {
-    await import('unpdf/pdfjs');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     await import('canvas');
-    checks['pdf-render'] = `OK (unpdf/pdfjs + node-canvas)`;
+    checks['pdf-render'] = `OK (pdfjs-dist + node-canvas)`;
   } catch (e) {
     checks['pdf-render'] = `ERROR: ${e}`;
   }

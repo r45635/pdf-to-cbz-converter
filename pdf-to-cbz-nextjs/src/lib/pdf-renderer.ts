@@ -1,10 +1,18 @@
-// PDF renderer using unpdf's bundled pdfjs with node-canvas for Vercel
+// PDF renderer using pdfjs-dist with node-canvas for Vercel
 import './polyfills';
 import { createCanvas } from 'canvas';
 
-// Import pdfjs from unpdf's bundled version (includes polyfills for serverless)
+// Configure pdfjs for serverless (no worker)
 const getPdfjs = async () => {
-  const pdfjs = await import('unpdf/pdfjs');
+  // Use the legacy build which has fewer requirements
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+
+  // Set up a fake worker to prevent worker loading
+  // This makes pdfjs run synchronously in the main thread
+  if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
+    pdfjs.GlobalWorkerOptions.workerSrc = '';
+  }
+
   return pdfjs;
 };
 
