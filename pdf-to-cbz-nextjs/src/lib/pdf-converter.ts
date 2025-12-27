@@ -526,8 +526,9 @@ export async function extractImagesFromPdf(
   let totalSize = 0;
 
   try {
-    // Load PDF with pdfjs
-    const loadingTask = pdfjs.getDocument({ data: pdfBuffer });
+    // Load PDF with pdfjs (convert Buffer to Uint8Array for compatibility)
+    const data = new Uint8Array(pdfBuffer);
+    const loadingTask = pdfjs.getDocument({ data });
     const pdf = await loadingTask.promise;
     const numPages = pdf.numPages;
 

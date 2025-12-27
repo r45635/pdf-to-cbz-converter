@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
 
     // Try direct extraction first
     try {
-      const loadingTask = pdfjs.getDocument({ data: pdfBuffer });
+      // Convert Buffer to Uint8Array for pdfjs compatibility
+      const pdfData = new Uint8Array(pdfBuffer);
+      const loadingTask = pdfjs.getDocument({ data: pdfData });
       const pdf = await loadingTask.promise;
 
       if (pageNum < 1 || pageNum > pdf.numPages) {
