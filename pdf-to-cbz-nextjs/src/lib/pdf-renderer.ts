@@ -13,7 +13,12 @@ export async function renderPdfPage(
 ): Promise<Buffer> {
   // Convert Buffer to Uint8Array for pdfjs compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  });
   const pdf = await loadingTask.promise;
 
   if (pageNumber < 1 || pageNumber > pdf.numPages) {
@@ -44,7 +49,12 @@ export async function* renderAllPages(
 ): AsyncGenerator<Buffer> {
   // Convert Buffer to Uint8Array for pdfjs compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  });
   const pdf = await loadingTask.promise;
 
   for (let i = 1; i <= pdf.numPages; i++) {
@@ -70,7 +80,12 @@ export async function* renderAllPages(
 export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
   // Convert Buffer to Uint8Array for pdfjs compatibility
   const data = new Uint8Array(pdfBuffer);
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+  });
   const pdf = await loadingTask.promise;
   const count = pdf.numPages;
   await pdf.cleanup();

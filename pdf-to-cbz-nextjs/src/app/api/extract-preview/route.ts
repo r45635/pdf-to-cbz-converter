@@ -30,7 +30,12 @@ export async function POST(request: NextRequest) {
     try {
       // Convert Buffer to Uint8Array for pdfjs compatibility
       const pdfData = new Uint8Array(pdfBuffer);
-      const loadingTask = pdfjs.getDocument({ data: pdfData });
+      const loadingTask = pdfjs.getDocument({
+        data: pdfData,
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      });
       const pdf = await loadingTask.promise;
 
       if (pageNum < 1 || pageNum > pdf.numPages) {
