@@ -1,3 +1,6 @@
+// Polyfills must be imported first for serverless environment
+import './polyfills';
+
 import sharp from 'sharp';
 import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';

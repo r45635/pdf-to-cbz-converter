@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import '@/lib/polyfills';
 import sharp from 'sharp';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
