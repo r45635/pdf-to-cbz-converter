@@ -163,15 +163,15 @@ export async function analyzePdf(pdfBuffer: Buffer): Promise<AnalysisResult> {
 }
 
 /**
- * Render PDF pages to images using pdf-to-img
+ * Render PDF pages to images using pdfjs + canvas (Vercel compatible)
  */
 async function renderPages(
   pdfBuffer: Buffer,
   dpi: number
 ): Promise<AsyncIterable<Buffer>> {
-  const { pdf } = await import('pdf-to-img');
+  const { renderAllPages } = await import('./pdf-renderer');
   const scale = dpi / 72;
-  return pdf(pdfBuffer, { scale });
+  return renderAllPages(pdfBuffer, scale);
 }
 
 /**
@@ -354,7 +354,7 @@ export async function testConversionParams(
   configs: Array<{dpi: number; format: 'jpeg' | 'png'; quality: number}>,
   analysis: AnalysisResult
 ): Promise<TestResult[]> {
-  const { pdf } = await import('pdf-to-img');
+  const { renderAllPages } = await import('./pdf-renderer');
   const results: TestResult[] = [];
 
   // Select sample pages at 20%, 40%, 60% for better representation
@@ -378,7 +378,7 @@ export async function testConversionParams(
 
     try {
       const scale = config.dpi / 72;
-      const pages = await pdf(pdfBuffer, { scale });
+      const pages = renderAllPages(pdfBuffer, scale);
 
       let pageIndex = 0;
       for await (const pageImage of pages) {
@@ -609,30 +609,23 @@ export async function extractImagesFromPdf(
       // If no image found via direct extraction, this page might need rendering
       if (!foundImage) {
         // Fall back to rendering for this page
-        const { pdf: renderPdf } = await import('pdf-to-img');
+        const { renderPdfPage } = await import('./pdf-renderer');
         const scale = 2; // High quality render
-        const rendered = await renderPdf(pdfBuffer, { scale });
+        const pageImage = await renderPdfPage(pdfBuffer, pageNum, scale);
 
-        let currentPage = 0;
-        for await (const pageImage of rendered) {
-          currentPage++;
-          if (currentPage === pageNum) {
-            const imgBuffer = await sharp(pageImage).jpeg({ quality: 95 }).toBuffer();
-            const metadata = await sharp(pageImage).metadata();
+        const imgBuffer = await sharp(pageImage).jpeg({ quality: 95 }).toBuffer();
+        const metadata = await sharp(pageImage).metadata();
 
-            images.push({
-              pageNum,
-              width: metadata.width || 0,
-              height: metadata.height || 0,
-              format: 'jpeg',
-              data: imgBuffer,
-              sizeKB: Math.round(imgBuffer.length / 1024),
-            });
+        images.push({
+          pageNum,
+          width: metadata.width || 0,
+          height: metadata.height || 0,
+          format: 'jpeg',
+          data: imgBuffer,
+          sizeKB: Math.round(imgBuffer.length / 1024),
+        });
 
-            totalSize += imgBuffer.length;
-            break;
-          }
-        }
+        totalSize += imgBuffer.length;
       }
 
       page.cleanup();
@@ -654,9 +647,9 @@ export async function extractImagesFromPdf(
     onProgress?.(0, 0, 'Direct extraction failed, rendering pages...');
 
     const analysis = await analyzePdf(pdfBuffer);
-    const { pdf: renderPdf } = await import('pdf-to-img');
+    const { renderAllPages } = await import('./pdf-renderer');
     const scale = analysis.nativeDpi / 72;
-    const rendered = await renderPdf(pdfBuffer, { scale });
+    const rendered = renderAllPages(pdfBuffer, scale);
 
     let pageNum = 0;
     for await (const pageImage of rendered) {

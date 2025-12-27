@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Step 4: Extract sample pages ONCE at max DPI
-        const { pdf } = await import('pdf-to-img');
+        const { renderAllPages } = await import('@/lib/pdf-renderer');
         const maxDpi = Math.max(...dpiValues);
 
         send({
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         });
 
         const maxScale = maxDpi / 72;
-        const pdfPages = await pdf(pdfBuffer, { scale: maxScale });
+        const pdfPages = renderAllPages(pdfBuffer, maxScale);
 
         // Extract only the sample pages
         const sampleImages: Array<{ pageNum: number; image: Buffer; width: number; height: number }> = [];

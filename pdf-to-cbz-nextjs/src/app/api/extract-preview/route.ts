@@ -99,29 +99,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Fallback: render at high DPI
-    const { pdf: renderPdf } = await import('pdf-to-img');
+    const { renderPdfPage } = await import('@/lib/pdf-renderer');
     const scale = 3; // High quality render (~216 DPI)
-    const rendered = await renderPdf(pdfBuffer, { scale });
+    const pageImage = await renderPdfPage(pdfBuffer, pageNum, scale);
 
-    let currentPage = 0;
-    for await (const pageImage of rendered) {
-      currentPage++;
-      if (currentPage === pageNum) {
-        const imgBuffer = await sharp(pageImage).png().toBuffer();
-        const metadata = await sharp(pageImage).metadata();
+    const imgBuffer = await sharp(pageImage).png().toBuffer();
+    const metadata = await sharp(pageImage).metadata();
 
-        return new NextResponse(new Uint8Array(imgBuffer), {
-          headers: {
-            'Content-Type': 'image/png',
-            'X-Extraction-Method': 'render',
-            'X-Image-Width': (metadata.width || 0).toString(),
-            'X-Image-Height': (metadata.height || 0).toString(),
-          },
-        });
-      }
-    }
-
-    return NextResponse.json({ error: 'Page not found' }, { status: 404 });
+    return new NextResponse(new Uint8Array(imgBuffer), {
+      headers: {
+        'Content-Type': 'image/png',
+        'X-Extraction-Method': 'render',
+        'X-Image-Width': (metadata.width || 0).toString(),
+        'X-Image-Height': (metadata.height || 0).toString(),
+      },
+    });
   } catch (error) {
     console.error('Extract preview error:', error);
     return NextResponse.json(
