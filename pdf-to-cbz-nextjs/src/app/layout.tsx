@@ -14,7 +14,24 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "PDF to CBZ Converter",
-  description: "Convert PDF files to CBZ format for comic book readers",
+  description: "Convert PDF files to CBZ format for comic book readers. Live preview, auto-optimization, and direct image extraction.",
+  keywords: ["PDF", "CBZ", "converter", "comic", "manga", "ebook"],
+  authors: [{ name: "Vincent Cruvellier" }],
+  icons: {
+    icon: "/icon.svg",
+  },
+  openGraph: {
+    title: "PDF to CBZ Converter",
+    description: "Convert PDF files to CBZ format for comic book readers",
+    type: "website",
+    images: ["/og-image.svg"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PDF to CBZ Converter",
+    description: "Convert PDF files to CBZ format for comic book readers",
+    images: ["/og-image.svg"],
+  },
 };
 
 export default function RootLayout({

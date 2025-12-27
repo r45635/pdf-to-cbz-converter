@@ -77,6 +77,21 @@ src/
    - Click "Convert" for rendered output
    - Click "Direct Extract" for exact image extraction
 
+## Deploy on Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fr45635%2Fpdf-to-cbz-converter%2Ftree%2Fmain%2Fpdf-to-cbz-nextjs)
+
+Or deploy manually:
+
+1. Fork/clone this repository
+2. Connect to [Vercel](https://vercel.com)
+3. Set root directory to `pdf-to-cbz-nextjs`
+4. Deploy
+
+**Configuration**: The `vercel.json` file configures:
+- Region: Paris (cdg1)
+- Function timeout: 300s for API routes
+
 ## License
 
 MIT License

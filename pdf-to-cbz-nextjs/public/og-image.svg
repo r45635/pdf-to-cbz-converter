@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f"/>
+      <stop offset="100%" style="stop-color:#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- PDF document -->
+  <g transform="translate(250, 180)">
+    <path d="M0 20C0 9 9 0 20 0h120l60 60v200c0 11-9 20-20 20H20c-11 0-20-9-20-20V20z" fill="#f5f5f5"/>
+    <path d="M120 0l60 60h-60V0z" fill="#ddd"/>
+    <text x="100" y="170" font-family="Arial, sans-serif" font-size="50" font-weight="bold" fill="#c41e3a" text-anchor="middle">PDF</text>
+  </g>
+
+  <!-- Arrow -->
+  <g transform="translate(500, 280)">
+    <path d="M0 35l80-50v30h60v40h-60v30l-80-50z" fill="#60a5fa"/>
+  </g>
+
+  <!-- Comic book -->
+  <g transform="translate(700, 165)">
+    <rect x="0" y="0" width="200" height="280" rx="8" fill="#f5f5f5"/>
+    <rect x="10" y="10" width="85" height="125" fill="#4ade80" rx="4"/>
+    <rect x="105" y="10" width="85" height="125" fill="#60a5fa" rx="4"/>
+    <rect x="10" y="145" width="85" height="125" fill="#f97316" rx="4"/>
+    <rect x="105" y="145" width="85" height="125" fill="#a78bfa" rx="4"/>
+  </g>
+  <text x="800" y="500" font-family="Arial, sans-serif" font-size="40" font-weight="bold" fill="#60a5fa" text-anchor="middle">CBZ</text>
+
+  <!-- Title -->
+  <text x="600" y="80" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="#f5f5f5" text-anchor="middle">PDF to CBZ Converter</text>
+  <text x="600" y="590" font-family="Arial, sans-serif" font-size="24" fill="#94a3b8" text-anchor="middle">Convert PDF files to CBZ format for comic book readers</text>
+</svg>
