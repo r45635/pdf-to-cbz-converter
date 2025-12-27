@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "regions": ["cdg1"],
   "functions": {
-    "src/app/api/**/*.ts": {
+    "app/api/**/*.ts": {
       "maxDuration": 300
     }
   }
