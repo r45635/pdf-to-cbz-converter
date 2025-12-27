@@ -68,6 +68,15 @@ export default function Home() {
   const [optimizeStatus, setOptimizeStatus] = useState('');
   const [currentTest, setCurrentTest] = useState<{current: number; total: number} | null>(null);
 
+  // Comparison mode
+  const [compareMode, setCompareMode] = useState(false);
+  const [originalPreviewUrl, setOriginalPreviewUrl] = useState<string | null>(null);
+  const [convertedPreviewUrl, setConvertedPreviewUrl] = useState<string | null>(null);
+  const [compareZoom, setCompareZoom] = useState(1);
+  const [comparePan, setComparePan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -368,6 +377,80 @@ export default function Home() {
       setIsOptimizing(false);
     }
   }, [file]);
+
+  // Load comparison images
+  const loadComparisonImages = useCallback(async () => {
+    if (!file || !analysis) return;
+
+    setCompareMode(true);
+    setCompareZoom(1);
+    setComparePan({ x: 0, y: 0 });
+
+    // Load original (native DPI, PNG for quality)
+    const originalFormData = new FormData();
+    originalFormData.append('file', file);
+    originalFormData.append('page', previewPage.toString());
+    originalFormData.append('dpi', analysis.nativeDpi.toString());
+    originalFormData.append('format', 'png');
+    originalFormData.append('quality', '100');
+
+    // Load converted (current settings)
+    const convertedFormData = new FormData();
+    convertedFormData.append('file', file);
+    convertedFormData.append('page', previewPage.toString());
+    convertedFormData.append('dpi', effectiveDpi.toString());
+    convertedFormData.append('format', format);
+    convertedFormData.append('quality', quality.toString());
+
+    try {
+      const [originalRes, convertedRes] = await Promise.all([
+        fetch('/api/preview', { method: 'POST', body: originalFormData }),
+        fetch('/api/preview', { method: 'POST', body: convertedFormData }),
+      ]);
+
+      if (originalRes.ok && convertedRes.ok) {
+        const [originalBlob, convertedBlob] = await Promise.all([
+          originalRes.blob(),
+          convertedRes.blob(),
+        ]);
+
+        setOriginalPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(originalBlob);
+        });
+        setConvertedPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(convertedBlob);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load comparison images:', err);
+    }
+  }, [file, analysis, previewPage, effectiveDpi, format, quality]);
+
+  // Comparison mouse handlers
+  const handleCompareMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - comparePan.x, y: e.clientY - comparePan.y });
+  }, [comparePan]);
+
+  const handleCompareMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setComparePan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  }, [isDragging, dragStart]);
+
+  const handleCompareMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleCompareWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setCompareZoom((z) => Math.max(0.5, Math.min(5, z * delta)));
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -783,70 +866,200 @@ export default function Home() {
           <div className="bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-blue-400">
-                Live Preview
+                {compareMode ? 'Comparison' : 'Live Preview'}
                 {isPreviewLoading && (
                   <span className="ml-2 text-sm text-gray-400 animate-pulse">updating...</span>
                 )}
               </h3>
-              {analysis && analysis.pageCount > 1 && (
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                {analysis && previewUrl && !compareMode && (
                   <button
-                    onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
-                    disabled={previewPage <= 1 || isPreviewLoading}
-                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded"
+                    onClick={loadComparisonImages}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded text-sm font-medium"
                   >
-                    &lt;
+                    Compare
                   </button>
-                  <span className="text-sm">
-                    Page {previewPage} of {analysis.pageCount}
-                  </span>
-                  <button
-                    onClick={() => setPreviewPage((p) => Math.min(analysis.pageCount, p + 1))}
-                    disabled={previewPage >= analysis.pageCount || isPreviewLoading}
-                    className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded"
-                  >
-                    &gt;
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="aspect-[3/4] bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden relative">
-              {isPreviewLoading && previewUrl && (
-                <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center z-10">
-                  <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Page preview"
-                  className={`max-w-full max-h-full object-contain transition-opacity ${
-                    isPreviewLoading ? 'opacity-50' : 'opacity-100'
-                  }`}
-                />
-              ) : isPreviewLoading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-10 h-10 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-gray-400">Loading preview...</span>
-                </div>
-              ) : (
-                <div className="text-gray-500 text-center p-4">
-                  <svg className="w-16 h-16 mx-auto mb-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p>Upload a PDF to see preview</p>
-                </div>
-              )}
-            </div>
-
-            {previewUrl && (
-              <div className="mt-3 p-2 bg-gray-900 rounded text-xs text-gray-400 text-center">
-                <span className="text-blue-400">DPI:</span> {effectiveDpi} |
-                <span className="text-blue-400 ml-2">Format:</span> {format.toUpperCase()}
-                {format === 'jpeg' && (
-                  <> | <span className="text-blue-400">Quality:</span> {quality}%</>
                 )}
+                {compareMode && (
+                  <button
+                    onClick={() => setCompareMode(false)}
+                    className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm font-medium"
+                  >
+                    Back
+                  </button>
+                )}
+                {analysis && analysis.pageCount > 1 && (
+                  <>
+                    <button
+                      onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                      disabled={previewPage <= 1 || isPreviewLoading}
+                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded"
+                    >
+                      &lt;
+                    </button>
+                    <span className="text-sm">
+                      Page {previewPage} of {analysis.pageCount}
+                    </span>
+                    <button
+                      onClick={() => setPreviewPage((p) => Math.min(analysis.pageCount, p + 1))}
+                      disabled={previewPage >= analysis.pageCount || isPreviewLoading}
+                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 rounded"
+                    >
+                      &gt;
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Normal Preview Mode */}
+            {!compareMode && (
+              <>
+                <div className="aspect-[3/4] bg-gray-900 rounded-lg flex items-center justify-center overflow-hidden relative">
+                  {isPreviewLoading && previewUrl && (
+                    <div className="absolute inset-0 bg-gray-900/50 flex items-center justify-center z-10">
+                      <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt="Page preview"
+                      className={`max-w-full max-h-full object-contain transition-opacity ${
+                        isPreviewLoading ? 'opacity-50' : 'opacity-100'
+                      }`}
+                    />
+                  ) : isPreviewLoading ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-10 h-10 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-gray-400">Loading preview...</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 text-center p-4">
+                      <svg className="w-16 h-16 mx-auto mb-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p>Upload a PDF to see preview</p>
+                    </div>
+                  )}
+                </div>
+
+                {previewUrl && (
+                  <div className="mt-3 p-2 bg-gray-900 rounded text-xs text-gray-400 text-center">
+                    <span className="text-blue-400">DPI:</span> {effectiveDpi} |
+                    <span className="text-blue-400 ml-2">Format:</span> {format.toUpperCase()}
+                    {format === 'jpeg' && (
+                      <> | <span className="text-blue-400">Quality:</span> {quality}%</>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Comparison Mode */}
+            {compareMode && (
+              <div className="space-y-3">
+                {/* Zoom controls */}
+                <div className="flex items-center justify-center gap-4 text-sm">
+                  <button
+                    onClick={() => setCompareZoom((z) => Math.max(0.5, z - 0.25))}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                  >
+                    -
+                  </button>
+                  <span className="text-gray-300 w-20 text-center">{Math.round(compareZoom * 100)}%</span>
+                  <button
+                    onClick={() => setCompareZoom((z) => Math.min(5, z + 0.25))}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => { setCompareZoom(1); setComparePan({ x: 0, y: 0 }); }}
+                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                {/* Side by side comparison */}
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Original */}
+                  <div className="space-y-1">
+                    <div className="text-center text-xs font-medium text-green-400">
+                      Original (DPI {analysis?.nativeDpi}, PNG)
+                    </div>
+                    <div
+                      className="aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative"
+                      onMouseDown={handleCompareMouseDown}
+                      onMouseMove={handleCompareMouseMove}
+                      onMouseUp={handleCompareMouseUp}
+                      onMouseLeave={handleCompareMouseUp}
+                      onWheel={handleCompareWheel}
+                    >
+                      {originalPreviewUrl ? (
+                        <img
+                          src={originalPreviewUrl}
+                          alt="Original"
+                          className="absolute select-none"
+                          style={{
+                            transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
+                            transformOrigin: 'center center',
+                            maxWidth: 'none',
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                          }}
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Converted */}
+                  <div className="space-y-1">
+                    <div className="text-center text-xs font-medium text-blue-400">
+                      Converted (DPI {effectiveDpi}, {format.toUpperCase()} Q{quality}%)
+                    </div>
+                    <div
+                      className="aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative"
+                      onMouseDown={handleCompareMouseDown}
+                      onMouseMove={handleCompareMouseMove}
+                      onMouseUp={handleCompareMouseUp}
+                      onMouseLeave={handleCompareMouseUp}
+                      onWheel={handleCompareWheel}
+                    >
+                      {convertedPreviewUrl ? (
+                        <img
+                          src={convertedPreviewUrl}
+                          alt="Converted"
+                          className="absolute select-none"
+                          style={{
+                            transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
+                            transformOrigin: 'center center',
+                            maxWidth: 'none',
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                          }}
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-center text-xs text-gray-500">
+                  Scroll to zoom, drag to pan (synchronized)
+                </div>
               </div>
             )}
           </div>
