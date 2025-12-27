@@ -1,40 +1,60 @@
-// PDF renderer using unpdf (serverless-compatible pdfjs wrapper)
+// PDF renderer using unpdf with node-canvas for Vercel
 import './polyfills';
-import { renderPageAsImage, getDocumentProxy } from 'unpdf';
+import { getDocumentProxy } from 'unpdf';
+import { createCanvas } from 'canvas';
 
 export async function renderPdfPage(
   pdfBuffer: Buffer,
   pageNumber: number,
   scale: number = 1
 ): Promise<Buffer> {
-  // Convert Buffer to Uint8Array for compatibility
   const data = new Uint8Array(pdfBuffer);
+  const pdf = await getDocumentProxy(data);
 
-  // Render at the specified scale
-  const result = await renderPageAsImage(data, pageNumber, {
-    scale,
-    canvasImport: () => import('@napi-rs/canvas'),
-  });
+  if (pageNumber < 1 || pageNumber > pdf.numPages) {
+    throw new Error(`Invalid page number: ${pageNumber}`);
+  }
 
-  return Buffer.from(result);
+  const page = await pdf.getPage(pageNumber);
+  const viewport = page.getViewport({ scale });
+
+  const canvas = createCanvas(viewport.width, viewport.height);
+  const context = canvas.getContext('2d');
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await page.render({
+    canvasContext: context as any,
+    viewport,
+  } as any).promise;
+
+  page.cleanup();
+  await pdf.cleanup();
+
+  return canvas.toBuffer('image/png');
 }
 
 export async function* renderAllPages(
   pdfBuffer: Buffer,
   scale: number = 1
 ): AsyncGenerator<Buffer> {
-  // Convert Buffer to Uint8Array for compatibility
   const data = new Uint8Array(pdfBuffer);
   const pdf = await getDocumentProxy(data);
-  const numPages = pdf.numPages;
 
-  for (let i = 1; i <= numPages; i++) {
-    const result = await renderPageAsImage(pdf, i, {
-      scale,
-      canvasImport: () => import('@napi-rs/canvas'),
-    });
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale });
 
-    yield Buffer.from(result);
+    const canvas = createCanvas(viewport.width, viewport.height);
+    const context = canvas.getContext('2d');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await page.render({
+      canvasContext: context as any,
+      viewport,
+    } as any).promise;
+
+    page.cleanup();
+    yield canvas.toBuffer('image/png');
   }
 
   await pdf.cleanup();
