@@ -10,6 +10,7 @@ Convert PDF files to CBZ format for comic book readers. Choose between a modern 
 |---------|------|----------|
 | [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) | Web App | Quick conversions, live preview, no install |
 | [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, batch processing, offline use |
+| [Docker](https://hub.docker.com/r/r45635/pdf-to-cbz) | Container | Self-hosted, no size limits |
 
 ---
 
@@ -35,6 +36,13 @@ npm run dev
 **Tech Stack:** Next.js 16, TypeScript, Tailwind CSS, pdfjs-dist, Sharp
 
 > **Note:** The [live demo](https://pdf-to-cbz-converter.vercel.app) has a 4.5MB file size limit (Vercel free tier). For larger files, run locally or use the Python app.
+
+**Docker:**
+```bash
+docker pull r45635/pdf-to-cbz
+docker run -p 3000:3000 r45635/pdf-to-cbz
+# Open http://localhost:3000
+```
 
 ---
 
