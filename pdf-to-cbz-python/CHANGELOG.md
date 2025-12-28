@@ -1,5 +1,32 @@
 # Changelog
 
+## [v2.2.2] - 2025-12-28
+
+### 🐳 Docker Support
+
+#### New Features
+- **NEW**: Docker image available on Docker Hub (`r45635/pdf-to-cbz`)
+- **NEW**: Multi-stage Dockerfile for optimized image size (436MB)
+- **NEW**: Automatic Docker build and push in GitHub Actions release workflow
+- **NEW**: Docker Compose support for easy self-hosting
+
+#### Quick Start
+```bash
+docker pull r45635/pdf-to-cbz
+docker run -p 3000:3000 r45635/pdf-to-cbz
+```
+
+### 🔧 Build & Infrastructure
+- **NEW**: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets for CI/CD
+- **NEW**: Docker image tagged with version number on each release
+- **UPDATED**: GitHub Actions workflow includes Docker build job
+
+### 📝 Documentation
+- **UPDATED**: Main README with Docker instructions and Docker Hub link
+- **UPDATED**: Next.js README with Docker deployment section
+
+---
+
 ## [v2.2.1] - 2025-12-28
 
 ### 🔧 Build & Infrastructure
