@@ -27,9 +27,25 @@ import threading
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-from PIL import Image, ImageTk, ImageDraw
+# Try to import tkinter (may not be available on all systems)
+TKINTER_AVAILABLE = True
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox, scrolledtext
+except ImportError:
+    TKINTER_AVAILABLE = False
+    tk = None
+    ttk = None
+    filedialog = None
+    messagebox = None
+    scrolledtext = None
+
+from PIL import Image, ImageDraw
+# ImageTk requires tkinter, so import conditionally
+if TKINTER_AVAILABLE:
+    from PIL import ImageTk
+else:
+    ImageTk = None
 from PyPDF2 import PdfReader
 import fitz  # PyMuPDF
 
@@ -1656,6 +1672,19 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main_cli()
     else:
+        if not TKINTER_AVAILABLE:
+            print("ERROR: tkinter is not available on this system.")
+            print("")
+            print("The GUI requires tkinter which is not installed or not configured.")
+            print("")
+            print("To fix this:")
+            print("  - macOS: brew install python-tk@3.x (match your Python version)")
+            print("  - Ubuntu/Debian: sudo apt-get install python3-tk")
+            print("  - Fedora: sudo dnf install python3-tkinter")
+            print("  - Windows: Reinstall Python with 'tcl/tk' option enabled")
+            print("")
+            print("Alternatively, use the CLI mode: python pdf_to_cbz_gui.py <input.pdf>")
+            sys.exit(1)
         root = tk.Tk()
         app = PDF2CBZGui(root)
         root.mainloop()

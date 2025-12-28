@@ -1,5 +1,11 @@
+# Core dependencies
 Pillow
 PyPDF2
 tqdm
 PyMuPDF
-PyQt5
+
+# Note: The GUI requires tkinter which is a system package:
+#   macOS: brew install python-tk@3.x
+#   Ubuntu/Debian: sudo apt-get install python3-tk
+#   Fedora: sudo dnf install python3-tkinter
+#   Windows: Included with standard Python installer
