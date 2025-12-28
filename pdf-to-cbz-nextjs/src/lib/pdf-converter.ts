@@ -6,9 +6,9 @@ import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
 
-// Configure pdfjs for serverless
+// Configure pdfjs for serverless - use legacy build for node-canvas compatibility
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfjs = require('pdfjs-dist/build/pdf.js');
+const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 pdfjs.GlobalWorkerOptions.workerSrc = '';
 
 export interface ConversionOptions {

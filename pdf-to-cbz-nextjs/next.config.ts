@@ -9,13 +9,17 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
-  // External packages for server-side rendering
-  serverExternalPackages: ['canvas', 'sharp', 'pdfjs-dist'],
+  // Externalize native modules for Docker compatibility
+  // These packages have native bindings that must not be bundled
+  serverExternalPackages: ['pdfjs-dist', 'canvas', 'sharp'],
   // Empty turbopack config to satisfy Next.js 16
   turbopack: {},
-  // Webpack config for pdfjs worker
-  webpack: (config) => {
-    config.resolve.alias.canvas = false;
+  // Webpack config
+  webpack: (config, { isServer }) => {
+    // Disable canvas on client-side only (not available in browser)
+    if (!isServer) {
+      config.resolve.alias.canvas = false;
+    }
     return config;
   },
 };
