@@ -2,3 +2,4 @@ Pillow
 PyPDF2
 tqdm
 PyMuPDF
+PyQt5
