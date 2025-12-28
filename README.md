@@ -23,6 +23,8 @@ npm run dev
 # Open http://localhost:3000
 ```
 
+> **Note on Vercel Demo Limits**: The [live demo](https://pdf-to-cbz-converter.vercel.app) runs on Vercel's free tier which has a **4.5MB request body limit**. For larger PDF files, run the application locally or use the Python desktop application.
+
 ### [pdf-to-cbz-python](./pdf-to-cbz-python/) - Desktop Application
 
 A Python-based converter with GUI and CLI, featuring:
