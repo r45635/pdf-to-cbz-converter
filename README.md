@@ -1,12 +1,30 @@
 # PDF to CBZ Converter
 
-Convert PDF files to CBZ format for comic book readers. Choose between a web application or desktop application.
+Convert PDF files to CBZ format for comic book readers. Choose between a modern web application or a cross-platform desktop application.
 
 **Live Demo:** [https://pdf-to-cbz-converter.vercel.app](https://pdf-to-cbz-converter.vercel.app)
 
-## 🚀 Quick Start
+## Projects
+
+| Project | Type | Best For |
+|---------|------|----------|
+| [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) | Web App | Quick conversions, live preview, no install |
+| [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, batch processing, offline use |
+
+---
 
 ### Web Application (Next.js)
+
+Modern web-based converter deployed on Vercel.
+
+**Features:**
+- Live preview with adjustable DPI/quality
+- Auto-optimization for optimal file size
+- Direct image extraction from PDF
+- Side-by-side comparison view
+- Real-time streaming progress
+
+**Quick Start:**
 ```bash
 cd pdf-to-cbz-nextjs
 npm install
@@ -14,45 +32,48 @@ npm run dev
 # Open http://localhost:3000
 ```
 
+**Tech Stack:** Next.js 16, TypeScript, Tailwind CSS, pdfjs-dist, Sharp
+
+> **Note:** The [live demo](https://pdf-to-cbz-converter.vercel.app) has a 4.5MB file size limit (Vercel free tier). For larger files, run locally or use the Python app.
+
+---
+
 ### Desktop Application (Python)
-```bash
-cd pdf-to-cbz-python
-pip install -r requirements.txt
-python pdf_to_cbz_gui.py
-```
 
-## 📦 Projects
-
-### [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) - Web Application
-
-Modern web-based converter with real-time preview and auto-optimization.
+Cross-platform desktop converter with GUI and CLI modes.
 
 **Features:**
-- Live preview with adjustable DPI/quality
-- Auto-optimization for optimal file size
-- Direct image extraction from PDF
-- Side-by-side comparison
-- Streaming progress updates
-
-**Tech:** Next.js 16, TypeScript, Tailwind CSS, Sharp
-
-> **Note:** Live demo has 4.5MB file limit. For larger files, run locally or use the Python app.
-
-### [pdf-to-cbz-python](./pdf-to-cbz-python/) - Desktop Application
-
-Cross-platform desktop converter with GUI and CLI.
-
-**Features:**
-- Full-featured GUI with preview
-- CLI for batch processing
-- Configuration management
-- Auto DPI detection
+- Full-featured GUI with real-time preview
+- CLI for scripting and batch processing
+- Configuration management (save/load settings)
+- Auto DPI detection with smart recommendations
 - Multi-threaded conversion
 - Pre-built executables available
 
-**Requirements:** Python 3.9+, Windows/macOS/Linux
+**Quick Start:**
+```bash
+cd pdf-to-cbz-python
+pip install -r requirements.txt
 
-## 📄 License
+# CLI mode
+python pdf_to_cbz.py document.pdf
+
+# GUI mode (requires tkinter)
+python pdf_to_cbz_gui.py
+```
+
+**Requirements:**
+- Python 3.9+
+- Windows, macOS, or Linux
+- tkinter for GUI (see [Python README](./pdf-to-cbz-python/README.md) for installation)
+
+---
+
+## Sample Files
+
+The `sample_dir/` folder contains sample PDF files for testing both applications.
+
+## License
 
 MIT License - See [LICENSE](./LICENSE)
 
