@@ -1,89 +1,69 @@
 # PDF to CBZ Converter - Python
 
-A local advanced converter from PDF to CBZ, with DPI analysis, image format options, configuration management, comprehensive hints system, and enhanced GUI.
+Convert PDF files to CBZ format with advanced features and cross-platform support.
 
-![PDF to CBZ Banner](banner.png)
+> **Version:** 2.2.0  
+> **Author:** Vincent Cruvellier  
+> **Platforms:** Windows, macOS, Linux  
+> **Python:** 3.9+
 
-> Version `v2.2.0`
-> Author: Vincent Cruvellier
-> Compatible with: Windows/macOS/Linux, Python 3.9+
-
----
-
-## Features
+## ✨ Features
 
 ### Core Conversion
-- Convert PDF to CBZ in PNG or JPEG
+- Convert PDF to CBZ (PNG or JPEG)
 - Auto DPI detection with smart recommendations
-- Manual DPI/quality/image format options
-- Multi-thread support with auto-detection
+- Multi-threaded processing
 - DPI analysis mode with size projections
-- Auto cleanup of temp image folders
-- Comprehensive logging system
+- Comprehensive logging
 
 ### Configuration Management
-- **Persistent Settings**: Save and load conversion preferences
-- **JSON Configuration**: Human-readable config files
-- **Smart Defaults**: Automatic optimal value selection
-- **CLI Override**: Command line arguments override config settings
+- Save and load conversion preferences
+- JSON configuration files
+- Smart defaults with CLI override support
 
-### Enhanced GUI (v2.1.0+)
-- **Enhanced Preview System**: Always-visible zoom controls
-- **Smart Zoom Modes**: Normal/Puissant/Ultra levels (keyboard: 1/2/3)
-- **Auto-Updating Preview**: Real-time updates on settings changes
-- **Settings Transfer**: Apply preview settings to main GUI
-- **Protected Info Bar**: Always-visible size metrics
+### Enhanced GUI
+- Real-time preview with zoom controls (1/2/3 for Normal/Power/Ultra)
+- Auto-updating preview on settings changes
+- Settings transfer from preview to main GUI
+- Always-visible size metrics
 
----
+## 🚀 Installation
 
-## Installation
-
-### Option 1: Download Pre-built Executables (Recommended)
+### Pre-built Executables (Recommended)
 
 Download from [GitHub Releases](../../releases):
 
 **Windows:**
-- Download `pdf_to_cbz_v{version}_windows.zip`
-- Extract and run `pdf_to_cbz_gui.exe` (GUI) or `pdf_to_cbz_cli.exe` (CLI)
+```
+pdf_to_cbz_v{version}_windows.zip
+→ Run pdf_to_cbz_gui.exe or pdf_to_cbz_cli.exe
+```
 
 **macOS:**
-- Download `pdf_to_cbz_v{version}_macos.zip`
-- Extract and open `pdf_to_cbz_gui.app`
-- CLI: run `./pdf_to_cbz_cli` from Terminal
+```
+pdf_to_cbz_v{version}_macos.zip
+→ Open pdf_to_cbz_gui.app or run ./pdf_to_cbz_cli
+```
 
-### Option 2: Install from Source
+### From Source
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run GUI
-python pdf_to_cbz_gui.py
-
-# Run CLI
-python pdf_to_cbz.py document.pdf
+python pdf_to_cbz_gui.py  # GUI
+python pdf_to_cbz.py document.pdf  # CLI
 ```
 
----
+## 📖 Quick Start
 
-## Quick Start
-
-### Get Help
 ```bash
-python hints.py           # Show hints and guidance
-python pdf_to_cbz.py --help  # Command help
-```
+# Get help
+python hints.py
+python pdf_to_cbz.py --help
 
-### Create Configuration
-```bash
+# Create configuration
 python pdf_to_cbz.py --create-config
-# Creates ~/.pdf2cbz_config.sample.json
-```
 
-### Basic Usage
-
-```bash
-# Basic conversion with auto-settings
+# Basic conversion
 python pdf_to_cbz.py document.pdf
 
 # High-quality conversion
@@ -92,42 +72,36 @@ python pdf_to_cbz.py document.pdf -d 200 -f png -q 95
 # Analyze before converting
 python pdf_to_cbz.py document.pdf --analyse
 
-# Save settings for future use
+# Save settings
 python pdf_to_cbz.py document.pdf --save-config
-```
 
-### GUI
-```bash
+# GUI
 python pdf_to_cbz_gui.py
 ```
 
----
+## 💡 Common Use Cases
 
-## Advanced Usage
-
-### For Comics/Manga
+### Comics/Manga
 ```bash
 python pdf_to_cbz.py comic.pdf -d 150 -f jpeg -q 85
 ```
 
-### For Text Documents
+### Text Documents
 ```bash
 python pdf_to_cbz.py textbook.pdf -d 200 -f png
 ```
 
 ### Batch Processing
 ```bash
-# Set up config first
+# Set up config
 python pdf_to_cbz.py sample.pdf -d 180 -f jpeg -q 90 --save-config
 
-# Process multiple files
+# Process files
 python pdf_to_cbz.py book1.pdf
 python pdf_to_cbz.py book2.pdf
 ```
 
----
-
-## Building Executables
+## 🔧 Building Executables
 
 ### Windows
 ```bash
@@ -140,28 +114,21 @@ pyinstaller --onefile --windowed --collect-all fitz --name pdf_to_cbz_gui pdf_to
 pyinstaller --onefile --collect-all fitz --name pdf_to_cbz_cli pdf_to_cbz.py
 ```
 
----
+## 📦 Dependencies
 
-## Dependencies
+- PyMuPDF (PDF processing)
+- Pillow (Image manipulation)
+- PyPDF2 (PDF utilities)
+- tqdm (Progress bars)
 
-- Python >= 3.9
-- PyMuPDF
-- Pillow
-- PyPDF2
-- tqdm
+## 🔄 Automated Releases
 
----
-
-## Automated Releases
-
-See [AUTOMATED_RELEASES.md](./AUTOMATED_RELEASES.md) for GitHub Actions release system.
+See [AUTOMATED_RELEASES.md](./AUTOMATED_RELEASES.md)
 
 ```powershell
 .\release.ps1 -Version "2.2.0" -Message "Add new features"
 ```
 
----
-
-## License
+## 📄 License
 
 MIT License

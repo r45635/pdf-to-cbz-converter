@@ -1,37 +1,37 @@
 # PDF to CBZ Converter - Next.js
 
-A modern web-based PDF to CBZ converter built with Next.js 16, TypeScript, and Tailwind CSS.
+Modern web-based PDF to CBZ converter with real-time preview and auto-optimization.
 
 **Live Demo:** [https://pdf-to-cbz-converter.vercel.app](https://pdf-to-cbz-converter.vercel.app)
 
-## Features
+## ✨ Features
 
-- **Live Preview**: Real-time page preview with adjustable parameters
-- **Auto-Optimization**: Tests multiple DPI/quality combinations to find optimal settings
-- **Direct Extraction**: Extract embedded images directly from PDF (exact quality match)
-- **Side-by-side Comparison**: Compare original vs converted with synchronized zoom/pan
-- **Streaming Progress**: Real-time conversion progress via Server-Sent Events
-- **Two Conversion Modes**:
+- **Live Preview** - Real-time page preview with adjustable parameters
+- **Auto-Optimization** - Automatic parameter tuning for optimal file size
+- **Direct Extraction** - Extract embedded images directly from PDF
+- **Side-by-side Comparison** - Compare original vs converted with synchronized zoom/pan
+- **Streaming Progress** - Real-time conversion progress via Server-Sent Events
+- **Two Conversion Modes:**
   - **Convert**: Render pages at chosen DPI (adjustable quality)
   - **Direct Extract**: Extract images as-is from PDF (exact quality)
 
-## Getting Started
+## 🚀 Getting Started
 
 ```bash
 # Install dependencies
 npm install
 
-# Run development server
+# Development server
 npm run dev
 
-# Build for production
+# Production build
 npm run build
 npm start
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
 
-## API Endpoints
+## 📡 API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
@@ -42,58 +42,49 @@ Open [http://localhost:3000](http://localhost:3000)
 | `POST /api/extract-preview` | Extract original image from a page |
 | `POST /api/optimize-stream` | Auto-optimize parameters (SSE) |
 
-## Tech Stack
+## 🛠️ Tech Stack
 
-- **Framework**: Next.js 16 with App Router
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **PDF Processing**: pdf-to-img, pdfjs-dist, pdf-lib
-- **Image Processing**: Sharp
-- **Archive**: Archiver
+- **Framework:** Next.js 16 with App Router
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS
+- **PDF Processing:** pdf-to-img, pdfjs-dist, pdf-lib
+- **Image Processing:** Sharp
+- **Archive:** Archiver
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 src/
 ├── app/
 │   ├── api/
-│   │   ├── analyze/        # PDF analysis
-│   │   ├── convert/        # Standard conversion
-│   │   ├── extract/        # Direct extraction
-│   │   ├── extract-preview/# Single page extraction
-│   │   ├── optimize-stream/# Auto-optimization (SSE)
-│   │   └── preview/        # Page preview
-│   ├── page.tsx            # Main UI
+│   │   ├── analyze/           # PDF analysis
+│   │   ├── convert/           # Standard conversion
+│   │   ├── extract/           # Direct extraction
+│   │   ├── extract-preview/   # Single page extraction
+│   │   ├── optimize-stream/   # Auto-optimization (SSE)
+│   │   └── preview/           # Page preview
+│   ├── page.tsx               # Main UI
 │   └── layout.tsx
 └── lib/
-    └── pdf-converter.ts    # Core conversion logic
+    └── pdf-converter.ts       # Core conversion logic
 ```
 
-## Usage
+## 💡 Usage
 
-1. **Upload PDF**: Drag & drop or click to select
-2. **Adjust Settings**: Choose DPI mode, format (JPEG/PNG), quality
-3. **Preview**: See real-time preview of conversion
-4. **Compare**: Use comparison mode to see original vs converted
-5. **Convert**:
-   - Click "Convert" for rendered output
-   - Click "Direct Extract" for exact image extraction
+1. **Upload PDF** - Drag & drop or click to select
+2. **Adjust Settings** - Choose DPI mode, format (JPEG/PNG), quality
+3. **Preview** - See real-time preview of conversion
+4. **Compare** - Use comparison mode (original vs converted)
+5. **Convert** - Click "Convert" or "Direct Extract"
 
-## Deploy on Vercel
+## 🚀 Deploy on Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fr45635%2Fpdf-to-cbz-converter%2Ftree%2Fmain%2Fpdf-to-cbz-nextjs)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyour-username%2Fpdf-to-cbz-converter%2Ftree%2Fmain%2Fpdf-to-cbz-nextjs)
 
-Or deploy manually:
-
-1. Fork/clone this repository
-2. Connect to [Vercel](https://vercel.com)
-3. Set root directory to `pdf-to-cbz-nextjs`
-4. Deploy
-
-**Configuration**: The `vercel.json` file configures:
+**Configuration** (vercel.json):
 - Region: Paris (cdg1)
-- Function timeout: 300s for API routes
+- Function timeout: 300s
 
-## License
+## 📄 License
 
 MIT License
