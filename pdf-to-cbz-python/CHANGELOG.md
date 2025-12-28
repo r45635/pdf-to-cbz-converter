@@ -1,5 +1,48 @@
 # Changelog
 
+## [v2.2.1] - 2025-12-28
+
+### 🔧 Build & Infrastructure
+
+#### Repository Reorganization
+- **UPDATED**: GitHub Actions workflow updated for new directory structure
+- **MOVED**: Python source files now in `pdf-to-cbz-python/` subdirectory
+- **IMPROVED**: Cleaner monorepo structure with separate Next.js and Python projects
+
+#### CI/CD Improvements
+- **FIXED**: Build workflow paths for Windows, macOS, and source packages
+- **MAINTAINED**: Full automated release pipeline with all platforms
+
+### 📝 Documentation
+- **UPDATED**: README version badges to 2.2.1
+- **UPDATED**: Windows version info metadata
+
+---
+
+## [v2.2.0] - 2025-09-14
+
+### 🚀 Major Improvements
+
+#### macOS Support
+- **NEW**: Added macOS build to GitHub Actions CI/CD pipeline
+- **NEW**: macOS standalone executables (CLI + GUI.app) now available in releases
+
+#### PyMuPDF Migration
+- **CHANGED**: Migrated CLI and GUI from pdf2image/Poppler to PyMuPDF (fitz)
+- **REMOVED**: Poppler dependency no longer required
+- **IMPROVED**: Bundled PyMuPDF in PyInstaller builds for standalone executables
+- **IMPROVED**: Simplified installation - no external dependencies needed
+
+#### GUI Enhancements
+- **IMPROVED**: Optional tkinter import with graceful error handling
+- **IMPROVED**: Helpful installation instructions when tkinter unavailable
+- **IMPROVED**: CLI mode works without tkinter installed
+
+### 🐛 Bug Fixes
+- **FIXED**: Smoke test compatibility with new directory structure
+
+---
+
 ## [v2.1.1] - 2025-01-05
 
 ### 🐛 Bug Fixes
