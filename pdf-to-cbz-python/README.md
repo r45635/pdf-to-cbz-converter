@@ -2,7 +2,7 @@
 
 Convert PDF files to CBZ format with advanced features and cross-platform support.
 
-> **Version:** 2.2.1
+> **Version:** 2.2.2
 > **Author:** Vincent Cruvellier
 > **Platforms:** Windows, macOS, Linux
 > **Python:** 3.9+
@@ -160,7 +160,7 @@ pyinstaller --onefile --collect-all fitz --name pdf_to_cbz_cli pdf_to_cbz.py
 See [AUTOMATED_RELEASES.md](./AUTOMATED_RELEASES.md) for CI/CD details.
 
 ```powershell
-.\release.ps1 -Version "2.2.1" -Message "Add new features"
+.\release.ps1 -Version "2.2.2" -Message "Add new features"
 ```
 
 ## License
