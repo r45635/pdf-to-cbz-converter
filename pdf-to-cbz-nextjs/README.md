@@ -79,17 +79,21 @@ src/
 
 ## 🐳 Docker Deployment
 
-Build and run locally with Docker:
+### From Docker Hub (Recommended)
 
 ```bash
-# Build the image
-docker build -t pdf-to-cbz .
-
-# Run the container
-docker run -p 3000:3000 pdf-to-cbz
+docker pull r45635/pdf-to-cbz
+docker run -p 3000:3000 r45635/pdf-to-cbz
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
+
+### Build Locally
+
+```bash
+docker build -t pdf-to-cbz .
+docker run -p 3000:3000 pdf-to-cbz
+```
 
 **Docker Compose** (optional):
 
@@ -97,7 +101,7 @@ Open [http://localhost:3000](http://localhost:3000)
 # docker-compose.yml
 services:
   pdf-to-cbz:
-    build: .
+    image: r45635/pdf-to-cbz:latest
     ports:
       - "3000:3000"
     restart: unless-stopped
