@@ -77,6 +77,36 @@ src/
 4. **Compare** - Use comparison mode (original vs converted)
 5. **Convert** - Click "Convert" or "Direct Extract"
 
+## 🐳 Docker Deployment
+
+Build and run locally with Docker:
+
+```bash
+# Build the image
+docker build -t pdf-to-cbz .
+
+# Run the container
+docker run -p 3000:3000 pdf-to-cbz
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+**Docker Compose** (optional):
+
+```yaml
+# docker-compose.yml
+services:
+  pdf-to-cbz:
+    build: .
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d
+```
+
 ## 🚀 Deploy on Vercel
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fyour-username%2Fpdf-to-cbz-converter%2Ftree%2Fmain%2Fpdf-to-cbz-nextjs)
