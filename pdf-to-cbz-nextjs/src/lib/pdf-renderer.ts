@@ -2,37 +2,25 @@
 import './polyfills';
 import { createCanvas } from 'canvas';
 
-// Configure pdfjs for serverless (with worker path)
-const getPdfjs = async () => {
-  // Use the legacy build which has fewer requirements
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+// Configure pdfjs for serverless
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfjs = require('pdfjs-dist/build/pdf.js');
 
-  // Set up worker path using require.resolve to get the actual file location
-  if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
-    try {
-      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
-    } catch {
-      // Fallback if require.resolve fails
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/legacy/build/pdf.worker.mjs',
-        import.meta.url
-      ).href;
-    }
-  }
-
-  return pdfjs;
-};
+// Disable worker - runs in main thread (required for serverless)
+pdfjs.GlobalWorkerOptions.workerSrc = '';
 
 export async function renderPdfPage(
   pdfBuffer: Buffer,
   pageNumber: number,
   scale: number = 1
 ): Promise<Buffer> {
-  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    disableAutoFetch: true,
+    disableStream: true,
+  });
   const pdf = await loadingTask.promise;
 
   if (pageNumber < 1 || pageNumber > pdf.numPages) {
@@ -61,10 +49,13 @@ export async function* renderAllPages(
   pdfBuffer: Buffer,
   scale: number = 1
 ): AsyncGenerator<Buffer> {
-  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    disableAutoFetch: true,
+    disableStream: true,
+  });
   const pdf = await loadingTask.promise;
 
   for (let i = 1; i <= pdf.numPages; i++) {
@@ -88,10 +79,13 @@ export async function* renderAllPages(
 }
 
 export async function getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
-  const pdfjs = await getPdfjs();
   const data = new Uint8Array(pdfBuffer);
 
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument({
+    data,
+    disableAutoFetch: true,
+    disableStream: true,
+  });
   const pdf = await loadingTask.promise;
   const count = pdf.numPages;
   await pdf.cleanup();

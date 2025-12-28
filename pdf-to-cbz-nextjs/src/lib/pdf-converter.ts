@@ -6,22 +6,10 @@ import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
 
-// Helper to get pdfjs (serverless-compatible)
-const getPdfjs = async () => {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
-    try {
-      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
-    } catch {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/legacy/build/pdf.worker.mjs',
-        import.meta.url
-      ).href;
-    }
-  }
-  return pdfjs;
-};
+// Configure pdfjs for serverless
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfjs = require('pdfjs-dist/build/pdf.js');
+pdfjs.GlobalWorkerOptions.workerSrc = '';
 
 export interface ConversionOptions {
   dpi?: number | null;
@@ -542,8 +530,7 @@ export async function extractImagesFromPdf(
   let totalSize = 0;
 
   try {
-    // Load PDF with pdfjs from unpdf (serverless-compatible)
-    const pdfjs = await getPdfjs();
+    // Load PDF with pdfjs (serverless-compatible)
     const data = new Uint8Array(pdfBuffer);
     const loadingTask = pdfjs.getDocument({ data });
     const pdf = await loadingTask.promise;

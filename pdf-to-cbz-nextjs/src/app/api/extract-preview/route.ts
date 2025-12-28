@@ -2,22 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import '@/lib/polyfills';
 import sharp from 'sharp';
 
-// Helper to get pdfjs (serverless-compatible)
-const getPdfjs = async () => {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  if (typeof pdfjs.GlobalWorkerOptions !== 'undefined') {
-    try {
-      const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
-      pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
-    } catch {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/legacy/build/pdf.worker.mjs',
-        import.meta.url
-      ).href;
-    }
-  }
-  return pdfjs;
-};
+// Configure pdfjs for serverless
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfjs = require('pdfjs-dist/build/pdf.js');
+pdfjs.GlobalWorkerOptions.workerSrc = '';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -41,8 +29,7 @@ export async function POST(request: NextRequest) {
 
     // Try direct extraction first
     try {
-      // Get pdfjs from unpdf (serverless-compatible)
-      const pdfjs = await getPdfjs();
+      // pdfjs is already initialized at top of file
       const pdfData = new Uint8Array(pdfBuffer);
       const loadingTask = pdfjs.getDocument({ data: pdfData });
       const pdf = await loadingTask.promise;

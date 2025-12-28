@@ -15,9 +15,10 @@ export async function GET() {
     checks.sharp = `ERROR: ${e}`;
   }
 
-  // Test pdfjs
+  // Test pdfjs (v3 uses CommonJS)
   try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfjs = require('pdfjs-dist/build/pdf.js');
     checks.pdfjs = `OK (version: ${pdfjs.version})`;
   } catch (e) {
     checks.pdfjs = `ERROR: ${e}`;
@@ -25,7 +26,8 @@ export async function GET() {
 
   // Test pdfjs-dist + node-canvas (serverless-compatible PDF rendering)
   try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('pdfjs-dist/build/pdf.js');
     await import('canvas');
     checks['pdf-render'] = `OK (pdfjs-dist + node-canvas)`;
   } catch (e) {
