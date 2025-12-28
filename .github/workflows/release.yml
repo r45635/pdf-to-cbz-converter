@@ -46,44 +46,45 @@ jobs:
         python-version: '3.11'
         
     - name: Install dependencies
+      working-directory: pdf-to-cbz-python
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
-        
+
     - name: Build Windows executables with version info
+      working-directory: pdf-to-cbz-python
       run: |
         # Build CLI version with version info
         pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli --version-file=version_info.txt --collect-all fitz pdf_to_cbz.py
-        
+
         # Build GUI version with version info
         pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_gui --windowed --version-file=version_info.txt --collect-all fitz pdf_to_cbz_gui.py
-        
+
     - name: Create Windows package
       run: |
         $VERSION = "${{ steps.version.outputs.VERSION }}"
         # Create release directory structure
         New-Item -ItemType Directory -Force -Path "release\pdf_to_cbz_${VERSION}_windows"
-        
+
         # Copy executables
-        Copy-Item "dist\pdf_to_cbz_cli.exe" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "dist\pdf_to_cbz_gui.exe" "release\pdf_to_cbz_${VERSION}_windows\"
-        
+        Copy-Item "pdf-to-cbz-python\dist\pdf_to_cbz_cli.exe" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "pdf-to-cbz-python\dist\pdf_to_cbz_gui.exe" "release\pdf_to_cbz_${VERSION}_windows\"
+
         # Copy documentation and essential files
-        Copy-Item "README.md" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "ENHANCED_FEATURES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
-        Copy-Item "QUICK_START.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
-        Copy-Item "CHANGELOG.md" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "RELEASE_NOTES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
-        Copy-Item "RELEASE_v2.1.0.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "pdf-to-cbz-python\README.md" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "pdf-to-cbz-python\ENHANCED_FEATURES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "pdf-to-cbz-python\QUICK_START.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "pdf-to-cbz-python\CHANGELOG.md" "release\pdf_to_cbz_${VERSION}_windows\"
+        Copy-Item "pdf-to-cbz-python\RELEASE_NOTES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
         Copy-Item "LICENSE" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "requirements.txt" "release\pdf_to_cbz_${VERSION}_windows\"
-        
+        Copy-Item "pdf-to-cbz-python\requirements.txt" "release\pdf_to_cbz_${VERSION}_windows\"
+
         # Copy sample directory if it exists
         if (Test-Path "sample_dir") {
           Copy-Item "sample_dir" "release\pdf_to_cbz_${VERSION}_windows\" -Recurse
         }
-        
+
         # Create ZIP package
         Compress-Archive -Path "release\pdf_to_cbz_${VERSION}_windows\*" -DestinationPath "pdf_to_cbz_${VERSION}_windows.zip"
         
@@ -116,12 +117,14 @@ jobs:
         python-version: '3.11'
 
     - name: Install dependencies
+      working-directory: pdf-to-cbz-python
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
 
     - name: Build macOS executables with version info
+      working-directory: pdf-to-cbz-python
       run: |
         # Build CLI version with version info
         pyinstaller --onefile --distpath=dist --workpath=build --clean --name=pdf_to_cbz_cli --version-file=version_info.txt --collect-all fitz pdf_to_cbz.py
@@ -136,19 +139,18 @@ jobs:
         mkdir -p "release/pdf_to_cbz_${VERSION}_macos"
 
         # Copy executables
-        cp "dist/pdf_to_cbz_cli" "release/pdf_to_cbz_${VERSION}_macos/"
+        cp "pdf-to-cbz-python/dist/pdf_to_cbz_cli" "release/pdf_to_cbz_${VERSION}_macos/"
         # GUI is an .app bundle on macOS; copy recursively
-        cp -R "dist/pdf_to_cbz_gui.app" "release/pdf_to_cbz_${VERSION}_macos/"
+        cp -R "pdf-to-cbz-python/dist/pdf_to_cbz_gui.app" "release/pdf_to_cbz_${VERSION}_macos/"
 
         # Copy documentation and essential files
-        cp README.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp ENHANCED_FEATURES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp QUICK_START.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp CHANGELOG.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp RELEASE_NOTES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp RELEASE_v2.1.0.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/README.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/ENHANCED_FEATURES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/QUICK_START.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/CHANGELOG.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/RELEASE_NOTES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
         cp LICENSE "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp requirements.txt "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp pdf-to-cbz-python/requirements.txt "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
 
         # Copy sample directory if it exists
         if [ -d "sample_dir" ]; then
@@ -186,25 +188,25 @@ jobs:
       run: |
         # Get version from previous step
         VERSION="${{ steps.version.outputs.VERSION }}"
-        
+
         # Create source directory structure
         mkdir -p release/pdf_to_cbz_${VERSION}_source
-        
-        # Copy source files (exclude build artifacts and caches)
-        cp -r *.py release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp requirements.txt release/pdf_to_cbz_${VERSION}_source/
-        cp *.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+
+        # Copy source files from pdf-to-cbz-python/ (exclude build artifacts and caches)
+        cp -r pdf-to-cbz-python/*.py release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp pdf-to-cbz-python/requirements.txt release/pdf_to_cbz_${VERSION}_source/
+        cp pdf-to-cbz-python/*.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         cp LICENSE release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp *.spec release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp *.bat release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp *.ps1 release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp version_info.txt release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        
+        cp pdf-to-cbz-python/*.spec release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp pdf-to-cbz-python/*.bat release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp pdf-to-cbz-python/*.ps1 release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp pdf-to-cbz-python/version_info.txt release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+
         # Create sample directory if it exists
         if [ -d "sample_dir" ]; then
           cp -r sample_dir release/pdf_to_cbz_${VERSION}_source/
         fi
-        
+
         # Create ZIP and tar.gz packages
         cd release
         zip -r ../pdf_to_cbz_${VERSION}_source.zip pdf_to_cbz_${VERSION}_source/
@@ -259,12 +261,10 @@ jobs:
       id: release_notes
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
-        
+
         # Read release notes from files if they exist, otherwise create generic ones
-        if [ -f "RELEASE_v2.1.0.md" ]; then
-          NOTES=$(cat RELEASE_v2.1.0.md)
-        elif [ -f "RELEASE_NOTES.md" ]; then
-          NOTES=$(cat RELEASE_NOTES.md)
+        if [ -f "pdf-to-cbz-python/RELEASE_NOTES.md" ]; then
+          NOTES=$(cat pdf-to-cbz-python/RELEASE_NOTES.md)
         else
           NOTES="## PDF to CBZ Converter ${VERSION}
 
