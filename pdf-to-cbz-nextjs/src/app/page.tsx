@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 
 interface AnalysisResult {
   pageCount: number;
@@ -608,8 +609,17 @@ export default function Home() {
     <div className="min-h-screen bg-gray-900 text-gray-100">
       <div className="container mx-auto px-4 py-4 max-w-6xl">
         {/* Header */}
-        <header className="text-center mb-4">
+        <header className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-blue-400">PDF to CBZ Converter</h1>
+          <Link
+            href="/batch"
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            Mode Batch
+          </Link>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
