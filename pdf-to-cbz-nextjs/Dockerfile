@@ -66,6 +66,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
+# Create batch jobs directory with proper permissions
+RUN mkdir -p /tmp/pdf-to-cbz-jobs && chown nextjs:nodejs /tmp/pdf-to-cbz-jobs
+
 # Copy built application
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2025-12-29
+
+### Added
+- **Batch Mode**: Convert multiple PDF files simultaneously
+  - Upload up to 50 PDFs at once (configurable)
+  - Real-time progress tracking with SSE streaming
+  - Individual file download or bulk ZIP download
+  - Configurable results expiration (default 1 hour)
+  - Copy download links to clipboard
+- **New API Endpoints**:
+  - `POST /api/batch-convert` - Batch conversion with SSE progress
+  - `GET /api/batch-results/{jobId}` - Job status and download links
+  - `GET /api/download/{jobId}/{fileId}` - Individual file download
+  - `GET /api/download-all/{jobId}` - Download all as ZIP
+  - `GET/POST /api/batch-admin` - Admin operations
+- **Configurable Limits** via environment variables:
+  - `BATCH_MAX_FILES` (default: 50)
+  - `BATCH_MAX_FILE_SIZE_MB` (default: 500)
+  - `BATCH_DEFAULT_EXPIRE_MINUTES` (default: 60)
+- **UI Improvements**:
+  - New batch page with drag & drop multiple files
+  - Advanced settings panel for batch limits
+  - Navigation between single and batch modes
+  - Screenshots added to README
+
 ## [2.2.3] - 2025-12-28
 
 ### Fixed
