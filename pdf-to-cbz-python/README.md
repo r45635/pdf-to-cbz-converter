@@ -114,7 +114,7 @@ Options:
   --debug           Enable debug logging
 ```
 
-**Supported input formats:** CBZ, CBR (requires rarfile), CB7 (requires py7zr), CBT
+**Supported input formats:** CBZ, CBR (requires unar or unrar), CB7 (requires py7zr), CBT
 
 ## Common Use Cases
 
@@ -149,11 +149,18 @@ python pdf_to_cbz.py book3.pdf
 - **img2pdf** - Lossless PDF creation (CBZ→PDF, recommended)
 
 ### Optional Packages
-- **rarfile** - CBR support (requires unrar binary)
 - **py7zr** - CB7 support
 
 ### System Packages
 - **tkinter** - GUI (see installation section)
+- **unar** or **unrar** - CBR support
+
+#### CBR Support Installation
+| Platform | Command |
+|----------|---------|
+| **macOS** | `brew install unar` (recommended, Gatekeeper-friendly) |
+| **Ubuntu/Debian** | `sudo apt-get install unar` or `sudo apt-get install unrar` |
+| **Windows** | Download [unrar](https://www.rarlab.com/rar_add.htm) and add to PATH |
 
 ## License
 
