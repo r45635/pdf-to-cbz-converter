@@ -73,10 +73,7 @@ jobs:
 
         # Copy documentation and essential files
         Copy-Item "pdf-to-cbz-python\README.md" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "pdf-to-cbz-python\ENHANCED_FEATURES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
-        Copy-Item "pdf-to-cbz-python\QUICK_START.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
-        Copy-Item "pdf-to-cbz-python\CHANGELOG.md" "release\pdf_to_cbz_${VERSION}_windows\"
-        Copy-Item "pdf-to-cbz-python\RELEASE_NOTES.md" "release\pdf_to_cbz_${VERSION}_windows\" -ErrorAction SilentlyContinue
+        Copy-Item "CHANGELOG.md" "release\pdf_to_cbz_${VERSION}_windows\"
         Copy-Item "LICENSE" "release\pdf_to_cbz_${VERSION}_windows\"
         Copy-Item "pdf-to-cbz-python\requirements.txt" "release\pdf_to_cbz_${VERSION}_windows\"
 
@@ -145,10 +142,7 @@ jobs:
 
         # Copy documentation and essential files
         cp pdf-to-cbz-python/README.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp pdf-to-cbz-python/ENHANCED_FEATURES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp pdf-to-cbz-python/QUICK_START.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp pdf-to-cbz-python/CHANGELOG.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
-        cp pdf-to-cbz-python/RELEASE_NOTES.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
+        cp CHANGELOG.md "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
         cp LICENSE "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
         cp pdf-to-cbz-python/requirements.txt "release/pdf_to_cbz_${VERSION}_macos/" 2>/dev/null || true
 
@@ -240,11 +234,9 @@ jobs:
         # Copy source files from pdf-to-cbz-python/ (exclude build artifacts and caches)
         cp -r pdf-to-cbz-python/*.py release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         cp pdf-to-cbz-python/requirements.txt release/pdf_to_cbz_${VERSION}_source/
-        cp pdf-to-cbz-python/*.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp pdf-to-cbz-python/README.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
+        cp CHANGELOG.md release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         cp LICENSE release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp pdf-to-cbz-python/*.spec release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp pdf-to-cbz-python/*.bat release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
-        cp pdf-to-cbz-python/*.ps1 release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
         cp pdf-to-cbz-python/version_info.txt release/pdf_to_cbz_${VERSION}_source/ 2>/dev/null || true
 
         # Create sample directory if it exists
