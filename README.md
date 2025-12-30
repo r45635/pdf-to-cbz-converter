@@ -18,21 +18,22 @@ Bidirectional converter between PDF and comic book archive formats (CBZ, CBR, CB
 
 | Project | Type | Best For |
 |---------|------|----------|
-| [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) | Web App | Quick conversions, live preview, batch processing |
-| [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, offline use, CBZ→PDF conversion |
+| [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) | Web App | Quick conversions, live preview, batch processing, PDF↔CBZ |
+| [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, offline use, CBZ/CBR/CB7→PDF |
 | [Docker](https://hub.docker.com/r/r45635/pdf-to-cbz) | Container | Self-hosted, no size limits |
 
 ---
 
 ### Web Application (Next.js)
 
-Modern web-based converter deployed on Vercel.
+Modern web-based converter deployed on Vercel with **bidirectional conversion**.
 
 **Features:**
+- **Bidirectional Conversion:** PDF→CBZ and CBZ→PDF in both single and batch modes
 - **Single File Mode:** Live preview, adjustable DPI/quality, side-by-side comparison
-- **Batch Mode:** Convert up to 50 PDFs simultaneously with progress tracking
+- **Batch Mode:** Convert up to 50 files simultaneously with progress tracking
+- **Direct Extraction:** Preserve original image quality (no recompression)
 - Auto-optimization for optimal file size
-- Direct image extraction from PDF
 - Real-time streaming progress
 - Download results individually or as ZIP
 - Configurable expiration for batch results (1h default)
@@ -45,12 +46,19 @@ npm run dev
 # Open http://localhost:3000
 ```
 
-**Batch Mode Endpoints:**
+**API Endpoints:**
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/batch-convert` | Convert multiple PDFs (SSE streaming) |
+| `POST /api/analyze` | Analyze PDF structure |
+| `POST /api/analyze-cbz` | Analyze CBZ structure |
+| `POST /api/convert` | Convert PDF to CBZ |
+| `POST /api/convert-cbz` | Convert CBZ to PDF |
+| `POST /api/extract` | Direct PDF to CBZ (no recompression) |
+| `POST /api/extract-cbz` | Direct CBZ to PDF (no recompression) |
+| `POST /api/batch-convert` | Batch PDF→CBZ (SSE streaming) |
+| `POST /api/batch-convert-cbz` | Batch CBZ→PDF (SSE streaming) |
 | `GET /api/batch-results/{jobId}` | Get job status and download links |
-| `GET /api/download/{jobId}/{fileId}` | Download individual CBZ |
+| `GET /api/download/{jobId}/{fileId}` | Download individual file |
 | `GET /api/download-all/{jobId}` | Download all as ZIP |
 
 **Environment Variables (Docker/Self-hosted):**
