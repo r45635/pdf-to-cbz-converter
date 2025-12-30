@@ -22,12 +22,29 @@ from PIL import Image
 from tqdm import tqdm
 
 # Optional imports for additional archive formats
+# Check for unar (macOS-friendly) or unrar for RAR support
+import shutil
+import subprocess
+import tempfile
+
+UNAR_AVAILABLE = shutil.which('unar') is not None
+UNRAR_AVAILABLE = False
+
 try:
     import rarfile
-    RARFILE_AVAILABLE = True
+    # Test if unrar actually works (may be blocked by Gatekeeper on macOS)
+    try:
+        result = subprocess.run(['unrar'], capture_output=True, timeout=2)
+        UNRAR_AVAILABLE = True
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        UNRAR_AVAILABLE = False
+    RARFILE_AVAILABLE = UNRAR_AVAILABLE
 except ImportError:
     RARFILE_AVAILABLE = False
     rarfile = None
+
+# RAR support is available if either unar or unrar works
+RAR_SUPPORT = UNAR_AVAILABLE or RARFILE_AVAILABLE
 
 try:
     import py7zr
@@ -137,11 +154,11 @@ class CBZConverter:
 
         # Check for required libraries for specific formats
         # Note: CBR files might actually be ZIP archives, so we check the format first
-        if ext == '.cbr' and not RARFILE_AVAILABLE:
+        if ext == '.cbr' and not RAR_SUPPORT:
             # Check if it's actually a ZIP file
             actual_format = self._detect_format_static(input_path)
             if actual_format != 'zip':
-                raise ImportError("rarfile library required for CBR files. Install with: pip install rarfile")
+                raise ImportError("No RAR support. Install unar (brew install unar) or unrar.")
         if ext == '.cb7' and not PY7ZR_AVAILABLE:
             raise ImportError("py7zr library required for CB7 files. Install with: pip install py7zr")
 
@@ -247,19 +264,52 @@ class CBZConverter:
         return images
 
     def _extract_from_rar(self) -> list[tuple[str, bytes]]:
-        """Extract images from RAR/CBR archive."""
-        if not RARFILE_AVAILABLE:
-            raise ImportError("rarfile library not available")
+        """Extract images from RAR/CBR archive using unar or rarfile."""
+        if not RAR_SUPPORT:
+            raise ImportError("No RAR support available. Install unar (brew install unar) or unrar.")
 
         images = []
-        with rarfile.RarFile(self.input_path, 'r') as rf:
-            for name in rf.namelist():
-                if is_image_file(name):
-                    try:
-                        data = rf.read(name)
-                        images.append((name, data))
-                    except Exception as e:
-                        logging.warning(f"Failed to read {name}: {e}")
+
+        # Prefer unar on macOS (no Gatekeeper issues)
+        if UNAR_AVAILABLE:
+            return self._extract_from_rar_unar()
+
+        # Fall back to rarfile if unrar works
+        if RARFILE_AVAILABLE:
+            with rarfile.RarFile(self.input_path, 'r') as rf:
+                for name in rf.namelist():
+                    if is_image_file(name):
+                        try:
+                            data = rf.read(name)
+                            images.append((name, data))
+                        except Exception as e:
+                            logging.warning(f"Failed to read {name}: {e}")
+        return images
+
+    def _extract_from_rar_unar(self) -> list[tuple[str, bytes]]:
+        """Extract images from RAR using unar command."""
+        images = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Extract RAR to temp directory using unar
+            result = subprocess.run(
+                ['unar', '-o', tmpdir, '-q', str(self.input_path)],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"unar extraction failed: {result.stderr}")
+
+            # Find all extracted files (unar creates a subdirectory)
+            for root, dirs, files in os.walk(tmpdir):
+                for filename in files:
+                    if is_image_file(filename):
+                        filepath = os.path.join(root, filename)
+                        try:
+                            with open(filepath, 'rb') as f:
+                                data = f.read()
+                            images.append((filename, data))
+                        except Exception as e:
+                            logging.warning(f"Failed to read {filename}: {e}")
         return images
 
     def _extract_from_7z(self) -> list[tuple[str, bytes]]:
@@ -489,8 +539,11 @@ class CBZConverter:
         ]
 
         # Check for additional format support
-        if RARFILE_AVAILABLE:
-            lines.append("CBR support: Yes (rarfile)")
+        if RAR_SUPPORT:
+            if UNAR_AVAILABLE:
+                lines.append("CBR support: Yes (unar)")
+            elif RARFILE_AVAILABLE:
+                lines.append("CBR support: Yes (rarfile)")
         if PY7ZR_AVAILABLE:
             lines.append("CB7 support: Yes (py7zr)")
 
