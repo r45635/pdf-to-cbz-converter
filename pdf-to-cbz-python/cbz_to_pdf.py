@@ -29,19 +29,23 @@ import tempfile
 
 UNAR_AVAILABLE = shutil.which('unar') is not None
 UNRAR_AVAILABLE = False
+RARFILE_AVAILABLE = False
+rarfile = None
 
-try:
-    import rarfile
-    # Test if unrar actually works (may be blocked by Gatekeeper on macOS)
+# Only test unrar if unar is NOT available (avoid Gatekeeper popup on macOS)
+if not UNAR_AVAILABLE:
     try:
-        result = subprocess.run(['unrar'], capture_output=True, timeout=2)
-        UNRAR_AVAILABLE = True
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        UNRAR_AVAILABLE = False
-    RARFILE_AVAILABLE = UNRAR_AVAILABLE
-except ImportError:
-    RARFILE_AVAILABLE = False
-    rarfile = None
+        import rarfile
+        # Test if unrar actually works (may be blocked by Gatekeeper on macOS)
+        try:
+            result = subprocess.run(['unrar'], capture_output=True, timeout=2)
+            UNRAR_AVAILABLE = True
+            RARFILE_AVAILABLE = True
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            UNRAR_AVAILABLE = False
+            RARFILE_AVAILABLE = False
+    except ImportError:
+        pass
 
 # RAR support is available if either unar or unrar works
 RAR_SUPPORT = UNAR_AVAILABLE or RARFILE_AVAILABLE
