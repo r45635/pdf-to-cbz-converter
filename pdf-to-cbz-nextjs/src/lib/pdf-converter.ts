@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import archiver from 'archiver';
 import { PDFDocument } from 'pdf-lib';
 import { PassThrough } from 'stream';
+import JSZip from 'jszip';
 
 // Configure pdfjs for serverless - use legacy build for node-canvas compatibility
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -735,4 +736,291 @@ export async function convertPdfToCbzDirect(
   });
 
   return Buffer.concat(chunks);
+}
+
+// ============================================================================
+// CBZ to PDF Conversion
+// ============================================================================
+
+export interface CbzAnalysisResult {
+  pageCount: number;
+  pages: {
+    pageNumber: number;
+    fileName: string;
+    width: number;
+    height: number;
+    format: string;
+    sizeKB: number;
+  }[];
+  cbzSizeMB: number;
+}
+
+export interface CbzToPdfOptions {
+  quality?: number; // JPEG quality for embedded images (1-100)
+  maxWidth?: number; // Max width in pixels (for downscaling)
+  maxHeight?: number; // Max height in pixels (for downscaling)
+}
+
+/**
+ * Analyze CBZ file and return image information
+ */
+export async function analyzeCbz(cbzBuffer: Buffer): Promise<CbzAnalysisResult> {
+  const zip = await JSZip.loadAsync(cbzBuffer);
+  const pages: CbzAnalysisResult['pages'] = [];
+  const cbzSizeMB = cbzBuffer.length / (1024 * 1024);
+
+  // Get all image files sorted by name
+  const imageFiles: { name: string; file: JSZip.JSZipObject }[] = [];
+
+  zip.forEach((relativePath, file) => {
+    if (!file.dir && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(relativePath)) {
+      imageFiles.push({ name: relativePath, file });
+    }
+  });
+
+  // Sort by name (natural sort for proper page ordering)
+  imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  let pageNum = 0;
+  for (const { name, file } of imageFiles) {
+    pageNum++;
+    const data = await file.async('nodebuffer');
+    const metadata = await sharp(data).metadata();
+
+    pages.push({
+      pageNumber: pageNum,
+      fileName: name,
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+      format: metadata.format || 'unknown',
+      sizeKB: Math.round(data.length / 1024),
+    });
+  }
+
+  return {
+    pageCount: pages.length,
+    pages,
+    cbzSizeMB: Math.round(cbzSizeMB * 100) / 100,
+  };
+}
+
+/**
+ * Convert CBZ to PDF
+ */
+export async function convertCbzToPdf(
+  cbzBuffer: Buffer,
+  options: CbzToPdfOptions = {},
+  onProgress?: (progress: ConversionProgress) => void
+): Promise<Buffer> {
+  const { quality = 85, maxWidth, maxHeight } = options;
+
+  const zip = await JSZip.loadAsync(cbzBuffer);
+
+  // Get all image files sorted by name
+  const imageFiles: { name: string; file: JSZip.JSZipObject }[] = [];
+
+  zip.forEach((relativePath, file) => {
+    if (!file.dir && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(relativePath)) {
+      imageFiles.push({ name: relativePath, file });
+    }
+  });
+
+  // Sort by name (natural sort for proper page ordering)
+  imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  const totalPages = imageFiles.length;
+
+  if (totalPages === 0) {
+    throw new Error('No images found in CBZ file');
+  }
+
+  // Create PDF document
+  const pdfDoc = await PDFDocument.create();
+
+  for (let i = 0; i < imageFiles.length; i++) {
+    const { name, file } = imageFiles[i];
+    const pageNum = i + 1;
+
+    if (onProgress) {
+      onProgress({
+        currentPage: pageNum,
+        totalPages,
+        percentage: Math.round((pageNum / totalPages) * 100),
+        status: 'processing',
+        message: `Processing page ${pageNum} of ${totalPages}`,
+      });
+    }
+
+    try {
+      let imageData = await file.async('nodebuffer');
+      let metadata = await sharp(imageData).metadata();
+
+      // Resize if needed
+      if (maxWidth || maxHeight) {
+        const needsResize =
+          (maxWidth && metadata.width && metadata.width > maxWidth) ||
+          (maxHeight && metadata.height && metadata.height > maxHeight);
+
+        if (needsResize) {
+          imageData = await sharp(imageData)
+            .resize(maxWidth, maxHeight, { fit: 'inside', withoutEnlargement: true })
+            .toBuffer();
+          metadata = await sharp(imageData).metadata();
+        }
+      }
+
+      // Convert to JPEG for PDF embedding (better compression)
+      const jpegBuffer = await sharp(imageData)
+        .jpeg({ quality })
+        .toBuffer();
+
+      // Embed image in PDF
+      const image = await pdfDoc.embedJpg(jpegBuffer);
+
+      // Create page with image dimensions
+      // PDF points: 72 points = 1 inch
+      // We scale images to fit reasonable page sizes (max A4-ish)
+      const maxPageWidth = 595; // A4 width in points
+      const maxPageHeight = 842; // A4 height in points
+
+      let pageWidth = metadata.width || image.width;
+      let pageHeight = metadata.height || image.height;
+
+      // Scale to fit within max page size while maintaining aspect ratio
+      const scaleX = maxPageWidth / pageWidth;
+      const scaleY = maxPageHeight / pageHeight;
+      const scale = Math.min(scaleX, scaleY, 1); // Don't upscale
+
+      pageWidth = Math.round(pageWidth * scale);
+      pageHeight = Math.round(pageHeight * scale);
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+      page.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: pageWidth,
+        height: pageHeight,
+      });
+    } catch (error) {
+      console.error(`Error processing image ${name}:`, error);
+      throw new Error(`Failed to process page ${pageNum}: ${name}`);
+    }
+  }
+
+  if (onProgress) {
+    onProgress({
+      currentPage: totalPages,
+      totalPages,
+      percentage: 100,
+      status: 'completed',
+      message: 'Conversion completed successfully',
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
+
+/**
+ * Convert CBZ to PDF using direct image embedding (no recompression)
+ * This preserves original image quality and is faster
+ */
+export async function convertCbzToPdfDirect(
+  cbzBuffer: Buffer,
+  onProgress?: (progress: ConversionProgress) => void
+): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(cbzBuffer);
+
+  // Get all image files sorted by name
+  const imageFiles: { name: string; file: JSZip.JSZipObject }[] = [];
+
+  zip.forEach((relativePath, file) => {
+    if (!file.dir && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(relativePath)) {
+      imageFiles.push({ name: relativePath, file });
+    }
+  });
+
+  // Sort by name (natural sort for proper page ordering)
+  imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  const totalPages = imageFiles.length;
+
+  if (totalPages === 0) {
+    throw new Error('No images found in CBZ file');
+  }
+
+  // Create PDF document
+  const pdfDoc = await PDFDocument.create();
+
+  for (let i = 0; i < imageFiles.length; i++) {
+    const { name, file } = imageFiles[i];
+    const pageNum = i + 1;
+
+    if (onProgress) {
+      onProgress({
+        currentPage: pageNum,
+        totalPages,
+        percentage: Math.round((pageNum / totalPages) * 100),
+        status: 'processing',
+        message: `Embedding image ${pageNum} of ${totalPages}`,
+      });
+    }
+
+    try {
+      const imageData = await file.async('nodebuffer');
+      const metadata = await sharp(imageData).metadata();
+      const format = metadata.format?.toLowerCase();
+
+      // Embed image directly based on format
+      let image;
+      if (format === 'jpeg' || format === 'jpg') {
+        image = await pdfDoc.embedJpg(imageData);
+      } else if (format === 'png') {
+        image = await pdfDoc.embedPng(imageData);
+      } else {
+        // For other formats (gif, webp, bmp), convert to PNG to preserve quality
+        const pngBuffer = await sharp(imageData).png().toBuffer();
+        image = await pdfDoc.embedPng(pngBuffer);
+      }
+
+      // Create page with image dimensions
+      const maxPageWidth = 595; // A4 width in points
+      const maxPageHeight = 842; // A4 height in points
+
+      let pageWidth = metadata.width || image.width;
+      let pageHeight = metadata.height || image.height;
+
+      // Scale to fit within max page size while maintaining aspect ratio
+      const scaleX = maxPageWidth / pageWidth;
+      const scaleY = maxPageHeight / pageHeight;
+      const scale = Math.min(scaleX, scaleY, 1); // Don't upscale
+
+      pageWidth = Math.round(pageWidth * scale);
+      pageHeight = Math.round(pageHeight * scale);
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+      page.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: pageWidth,
+        height: pageHeight,
+      });
+    } catch (error) {
+      console.error(`Error processing image ${name}:`, error);
+      throw new Error(`Failed to process page ${pageNum}: ${name}`);
+    }
+  }
+
+  if (onProgress) {
+    onProgress({
+      currentPage: totalPages,
+      totalPages,
+      percentage: 100,
+      status: 'completed',
+      message: 'Direct embedding completed successfully',
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }

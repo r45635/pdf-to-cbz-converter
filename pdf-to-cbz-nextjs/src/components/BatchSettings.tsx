@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BatchSettings, BatchConfig } from '@/lib/batch-types';
+import { BatchSettings, BatchConfig, BatchConversionMode } from '@/lib/batch-types';
 
 interface BatchSettingsProps {
   settings: BatchSettings;
@@ -9,6 +9,7 @@ interface BatchSettingsProps {
   config: BatchConfig;
   onConfigChange: (config: BatchConfig) => void;
   disabled?: boolean;
+  mode: BatchConversionMode;
 }
 
 export default function BatchSettingsPanel({
@@ -17,6 +18,7 @@ export default function BatchSettingsPanel({
   config,
   onConfigChange,
   disabled = false,
+  mode,
 }: BatchSettingsProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -24,79 +26,83 @@ export default function BatchSettingsPanel({
     <div className="bg-gray-800 rounded-lg p-4 space-y-4">
       <h3 className="text-sm font-medium text-gray-300">Paramètres de conversion</h3>
 
-      {/* DPI */}
-      <div className="space-y-2">
-        <label className="text-xs text-gray-400">Résolution (DPI)</label>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onChange({ ...settings, dpi: 'auto' })}
-            disabled={disabled}
-            className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              settings.dpi === 'auto'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            Auto (natif)
-          </button>
-          <input
-            type="number"
-            min="72"
-            max="600"
-            value={typeof settings.dpi === 'number' ? settings.dpi : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === '') {
-                onChange({ ...settings, dpi: 'auto' });
-              } else {
-                const dpi = parseInt(value, 10);
-                if (dpi >= 72 && dpi <= 600) {
-                  onChange({ ...settings, dpi });
+      {/* DPI - PDF to CBZ only */}
+      {mode === 'pdf-to-cbz' && (
+        <div className="space-y-2">
+          <label className="text-xs text-gray-400">Résolution (DPI)</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onChange({ ...settings, dpi: 'auto' })}
+              disabled={disabled}
+              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                settings.dpi === 'auto'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              Auto (natif)
+            </button>
+            <input
+              type="number"
+              min="72"
+              max="600"
+              value={typeof settings.dpi === 'number' ? settings.dpi : ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '') {
+                  onChange({ ...settings, dpi: 'auto' });
+                } else {
+                  const dpi = parseInt(value, 10);
+                  if (dpi >= 72 && dpi <= 600) {
+                    onChange({ ...settings, dpi });
+                  }
                 }
-              }
-            }}
-            placeholder="150"
-            disabled={disabled}
-            className={`w-20 px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-center focus:ring-1 focus:ring-blue-500 ${
-              disabled ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          />
-        </div>
-      </div>
-
-      {/* Format */}
-      <div className="space-y-2">
-        <label className="text-xs text-gray-400">Format d&apos;image</label>
-        <div className="flex gap-4">
-          <label className={`flex items-center cursor-pointer ${disabled ? 'opacity-50' : ''}`}>
-            <input
-              type="radio"
-              name="format"
-              value="jpeg"
-              checked={settings.format === 'jpeg'}
-              onChange={() => onChange({ ...settings, format: 'jpeg' })}
+              }}
+              placeholder="150"
               disabled={disabled}
-              className="mr-2"
+              className={`w-20 px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-center focus:ring-1 focus:ring-blue-500 ${
+                disabled ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
-            <span className="text-sm text-gray-300">JPEG</span>
-          </label>
-          <label className={`flex items-center cursor-pointer ${disabled ? 'opacity-50' : ''}`}>
-            <input
-              type="radio"
-              name="format"
-              value="png"
-              checked={settings.format === 'png'}
-              onChange={() => onChange({ ...settings, format: 'png' })}
-              disabled={disabled}
-              className="mr-2"
-            />
-            <span className="text-sm text-gray-300">PNG</span>
-          </label>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Quality (JPEG only) */}
-      {settings.format === 'jpeg' && (
+      {/* Format - PDF to CBZ only */}
+      {mode === 'pdf-to-cbz' && (
+        <div className="space-y-2">
+          <label className="text-xs text-gray-400">Format d&apos;image</label>
+          <div className="flex gap-4">
+            <label className={`flex items-center cursor-pointer ${disabled ? 'opacity-50' : ''}`}>
+              <input
+                type="radio"
+                name="format"
+                value="jpeg"
+                checked={settings.format === 'jpeg'}
+                onChange={() => onChange({ ...settings, format: 'jpeg' })}
+                disabled={disabled}
+                className="mr-2"
+              />
+              <span className="text-sm text-gray-300">JPEG</span>
+            </label>
+            <label className={`flex items-center cursor-pointer ${disabled ? 'opacity-50' : ''}`}>
+              <input
+                type="radio"
+                name="format"
+                value="png"
+                checked={settings.format === 'png'}
+                onChange={() => onChange({ ...settings, format: 'png' })}
+                disabled={disabled}
+                className="mr-2"
+              />
+              <span className="text-sm text-gray-300">PNG</span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Quality */}
+      {(mode === 'cbz-to-pdf' || settings.format === 'jpeg') && (
         <div className="space-y-2">
           <label className="text-xs text-gray-400">Qualité JPEG</label>
           <div className="flex items-center gap-3">
@@ -107,7 +113,7 @@ export default function BatchSettingsPanel({
               value={settings.quality}
               onChange={(e) => onChange({ ...settings, quality: parseInt(e.target.value, 10) })}
               disabled={disabled}
-              className={`flex-1 accent-blue-500 ${disabled ? 'opacity-50' : ''}`}
+              className={`flex-1 ${mode === 'cbz-to-pdf' ? 'accent-green-500' : 'accent-blue-500'} ${disabled ? 'opacity-50' : ''}`}
             />
             <span className="text-sm text-gray-400 w-12 text-right">{settings.quality}%</span>
           </div>

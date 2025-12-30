@@ -3,7 +3,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 
-interface AnalysisResult {
+type ConversionMode = 'pdf-to-cbz' | 'cbz-to-pdf';
+
+interface PdfAnalysisResult {
   pageCount: number;
   pages: {
     pageNumber: number;
@@ -16,6 +18,21 @@ interface AnalysisResult {
   pdfSizeMB: number;
   nativeDpi: number;
 }
+
+interface CbzAnalysisResult {
+  pageCount: number;
+  pages: {
+    pageNumber: number;
+    fileName: string;
+    width: number;
+    height: number;
+    format: string;
+    sizeKB: number;
+  }[];
+  cbzSizeMB: number;
+}
+
+type AnalysisResult = PdfAnalysisResult | CbzAnalysisResult;
 
 interface OptimalParams {
   dpi: number;
@@ -37,7 +54,12 @@ interface TestResult {
   qualityScore: number;
 }
 
+function isPdfAnalysis(analysis: AnalysisResult): analysis is PdfAnalysisResult {
+  return 'pdfSizeMB' in analysis;
+}
+
 export default function Home() {
+  const [mode, setMode] = useState<ConversionMode>('pdf-to-cbz');
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -82,17 +104,17 @@ export default function Home() {
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Get effective DPI based on settings
+  // Get effective DPI based on settings (PDF mode only)
   const effectiveDpi = useMemo(() => {
     if (dpi) return parseInt(dpi, 10);
-    if (!analysis) return 150;
+    if (!analysis || !isPdfAnalysis(analysis)) return 150;
     return matchPdfSize ? analysis.nativeDpi : analysis.recommendedDpi;
   }, [dpi, analysis, matchPdfSize]);
 
-  // Calculate estimated size based on current settings
+  // Calculate estimated size based on current settings (PDF mode only)
   // Uses real test results when available, otherwise falls back to formula
   const estimatedSize = useMemo(() => {
-    if (!analysis) return null;
+    if (!analysis || !isPdfAnalysis(analysis)) return null;
 
     const currentDpi = effectiveDpi;
 
@@ -191,9 +213,10 @@ export default function Home() {
     }
   }, []);
 
-  // Auto-update preview when parameters change (with debounce)
+  // Auto-update preview when parameters change (with debounce) - PDF mode only
   useEffect(() => {
-    if (!file || !analysis) return;
+    // Skip preview loading in CBZ mode - preview API only supports PDF
+    if (!file || !analysis || mode === 'cbz-to-pdf') return;
 
     if (previewTimeoutRef.current) {
       clearTimeout(previewTimeoutRef.current);
@@ -208,9 +231,21 @@ export default function Home() {
         clearTimeout(previewTimeoutRef.current);
       }
     };
-  }, [file, analysis, effectiveDpi, format, quality, previewPage, loadPreview]);
+  }, [file, analysis, mode, effectiveDpi, format, quality, previewPage, loadPreview]);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
+    // Detect mode from file extension
+    const fileName = selectedFile.name.toLowerCase();
+    const isPdf = fileName.endsWith('.pdf');
+    const isCbz = fileName.endsWith('.cbz');
+
+    if (!isPdf && !isCbz) {
+      setError('Please select a PDF or CBZ file');
+      return;
+    }
+
+    const newMode = isPdf ? 'pdf-to-cbz' : 'cbz-to-pdf';
+    setMode(newMode);
     setFile(selectedFile);
     setAnalysis(null);
     setPreviewUrl(null);
@@ -219,13 +254,16 @@ export default function Home() {
     setConversionProgress(0);
     setConversionStatus('');
     setDpi(''); // Reset to auto
+    setOptimalParams(null);
+    setTestResults([]);
 
     setIsAnalyzing(true);
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const response = await fetch('/api/analyze', {
+      const endpoint = isPdf ? '/api/analyze' : '/api/analyze-cbz';
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -255,9 +293,24 @@ export default function Home() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('dpi', effectiveDpi.toString());
-      formData.append('format', format);
-      formData.append('quality', quality.toString());
+
+      let endpoint: string;
+      let outputExtension: string;
+      let outputMimeLabel: string;
+
+      if (mode === 'pdf-to-cbz') {
+        endpoint = '/api/convert';
+        outputExtension = '.cbz';
+        outputMimeLabel = 'CBZ';
+        formData.append('dpi', effectiveDpi.toString());
+        formData.append('format', format);
+        formData.append('quality', quality.toString());
+      } else {
+        endpoint = '/api/convert-cbz';
+        outputExtension = '.pdf';
+        outputMimeLabel = 'PDF';
+        formData.append('quality', quality.toString());
+      }
 
       const totalPages = analysis.pageCount;
       const progressInterval = setInterval(() => {
@@ -270,7 +323,7 @@ export default function Home() {
         });
       }, 500);
 
-      const response = await fetch('/api/convert', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -283,13 +336,14 @@ export default function Home() {
       }
 
       setConversionProgress(95);
-      setConversionStatus('Downloading CBZ file...');
+      setConversionStatus(`Downloading ${outputMimeLabel} file...`);
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = file.name.replace(/\.pdf$/i, '.cbz');
+      const baseFileName = file.name.replace(/\.(pdf|cbz)$/i, '');
+      a.download = baseFileName + outputExtension;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -309,7 +363,7 @@ export default function Home() {
     } finally {
       setIsConverting(false);
     }
-  }, [file, analysis, effectiveDpi, format, quality]);
+  }, [file, analysis, effectiveDpi, format, quality, mode]);
 
   const handleOptimize = useCallback(async () => {
     if (!file) return;
@@ -412,9 +466,9 @@ export default function Home() {
   // Original image info from direct extraction
   const [originalImageInfo, setOriginalImageInfo] = useState<{ width: number; height: number; method: string } | null>(null);
 
-  // Load comparison images
+  // Load comparison images (PDF mode only)
   const loadComparisonImages = useCallback(async () => {
-    if (!file || !analysis) return;
+    if (!file || !analysis || mode === 'cbz-to-pdf') return;
 
     setCompareMode(true);
     setCompareZoom(1);
@@ -464,7 +518,7 @@ export default function Home() {
     } catch (err) {
       console.error('Failed to load comparison images:', err);
     }
-  }, [file, analysis, previewPage, effectiveDpi, format, quality]);
+  }, [file, analysis, mode, previewPage, effectiveDpi, format, quality]);
 
   // Direct extraction state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -480,11 +534,17 @@ export default function Home() {
     setExtractProgress(0);
     setExtractStatus('Starting direct extraction...');
 
+    // Select endpoint and output settings based on mode
+    const endpoint = mode === 'pdf-to-cbz' ? '/api/extract' : '/api/extract-cbz';
+    const outputExtension = mode === 'pdf-to-cbz' ? '_direct.cbz' : '_direct.pdf';
+    const mimeType = mode === 'pdf-to-cbz' ? 'application/zip' : 'application/pdf';
+    const inputExtRegex = mode === 'pdf-to-cbz' ? /\.pdf$/i : /\.cbz$/i;
+
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/extract', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -527,17 +587,17 @@ export default function Home() {
                   setExtractProgress(100);
                   setExtractStatus(`Done! ${data.outputSizeMB.toFixed(1)} MB (${Math.round(data.sizeRatio * 100)}% of original)`);
 
-                  // Download the CBZ file
+                  // Download the output file
                   const binaryString = atob(data.data);
                   const bytes = new Uint8Array(binaryString.length);
                   for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                   }
-                  const blob = new Blob([bytes], { type: 'application/zip' });
+                  const blob = new Blob([bytes], { type: mimeType });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = file.name.replace(/\.pdf$/i, '_direct.cbz');
+                  a.download = file.name.replace(inputExtRegex, outputExtension);
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);
@@ -567,7 +627,7 @@ export default function Home() {
     } finally {
       setIsExtracting(false);
     }
-  }, [file]);
+  }, [file, mode]);
 
   // Comparison mouse handlers
   const handleCompareMouseDown = useCallback((e: React.MouseEvent) => {
@@ -596,8 +656,11 @@ export default function Home() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile && droppedFile.name.toLowerCase().endsWith('.pdf')) {
-      handleFileSelect(droppedFile);
+    if (droppedFile) {
+      const fileName = droppedFile.name.toLowerCase();
+      if (fileName.endsWith('.pdf') || fileName.endsWith('.cbz')) {
+        handleFileSelect(droppedFile);
+      }
     }
   }, [handleFileSelect]);
 
@@ -610,7 +673,29 @@ export default function Home() {
       <div className="container mx-auto px-4 py-4 max-w-6xl">
         {/* Header */}
         <header className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-blue-400">PDF to CBZ Converter</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-blue-400">
+              {mode === 'pdf-to-cbz' ? 'PDF → CBZ' : 'CBZ → PDF'}
+            </h1>
+            <div className="flex bg-gray-800 rounded-lg p-1">
+              <button
+                onClick={() => { setMode('pdf-to-cbz'); setFile(null); setAnalysis(null); setPreviewUrl(null); setError(null); }}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  mode === 'pdf-to-cbz' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                PDF → CBZ
+              </button>
+              <button
+                onClick={() => { setMode('cbz-to-pdf'); setFile(null); setAnalysis(null); setPreviewUrl(null); setError(null); }}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  mode === 'cbz-to-pdf' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                CBZ → PDF
+              </button>
+            </div>
+          </div>
           <Link
             href="/batch"
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
@@ -637,7 +722,7 @@ export default function Home() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept={mode === 'pdf-to-cbz' ? '.pdf' : '.cbz'}
                 className="hidden"
                 onChange={(e) => {
                   const selectedFile = e.target.files?.[0];
@@ -659,7 +744,7 @@ export default function Home() {
                   <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
-                  <p>Drop PDF here or click to browse</p>
+                  <p>Drop {mode === 'pdf-to-cbz' ? 'PDF' : 'CBZ'} here or click to browse</p>
                 </div>
               )}
             </div>
@@ -674,24 +759,36 @@ export default function Home() {
             {analysis && (
               <div className="bg-gray-800 rounded-lg p-3">
                 <div className="flex items-center justify-between text-sm">
-                  <div className="flex gap-4">
-                    <span><span className="text-gray-400">Pages:</span> {analysis.pageCount}</span>
-                    <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.pdfSizeMB.toFixed(1)}MB</span></span>
-                    <span><span className="text-gray-400">Native:</span> {analysis.nativeDpi}DPI</span>
-                    <span><span className="text-gray-400">HD:</span> {analysis.recommendedDpi}DPI</span>
-                  </div>
-                  <span className={`font-bold ${
-                    estimatedSize && analysis.pdfSizeMB && Math.abs(estimatedSize - analysis.pdfSizeMB) < analysis.pdfSizeMB * 0.2
-                      ? 'text-green-400' : 'text-yellow-400'
-                  }`}>
-                    ~{estimatedSize?.toFixed(0) || '?'}MB
-                  </span>
+                  {isPdfAnalysis(analysis) ? (
+                    <>
+                      <div className="flex gap-4">
+                        <span><span className="text-gray-400">Pages:</span> {analysis.pageCount}</span>
+                        <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.pdfSizeMB.toFixed(1)}MB</span></span>
+                        <span><span className="text-gray-400">Native:</span> {analysis.nativeDpi}DPI</span>
+                        <span><span className="text-gray-400">HD:</span> {analysis.recommendedDpi}DPI</span>
+                      </div>
+                      <span className={`font-bold ${
+                        estimatedSize && analysis.pdfSizeMB && Math.abs(estimatedSize - analysis.pdfSizeMB) < analysis.pdfSizeMB * 0.2
+                          ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        ~{estimatedSize?.toFixed(0) || '?'}MB
+                      </span>
+                    </>
+                  ) : (
+                    <div className="flex gap-4">
+                      <span><span className="text-gray-400">Images:</span> {analysis.pageCount}</span>
+                      <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.cbzSizeMB.toFixed(1)}MB</span></span>
+                      {analysis.pages.length > 0 && (
+                        <span><span className="text-gray-400">Dimensions:</span> {analysis.pages[0].width}x{analysis.pages[0].height}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Auto-Optimize Button */}
-            {analysis && (
+            {/* Auto-Optimize Button - PDF mode only */}
+            {analysis && mode === 'pdf-to-cbz' && isPdfAnalysis(analysis) && (
               <div className="bg-gradient-to-r from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-lg p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-400">Auto-find optimal DPI/quality</span>
@@ -795,8 +892,8 @@ export default function Home() {
             {/* Conversion Options */}
             <div className="bg-gray-800 rounded-lg p-3">
               <div className="space-y-3">
-                {/* Quality Mode + Custom DPI */}
-                {analysis && (
+                {/* Quality Mode + Custom DPI - PDF mode only */}
+                {analysis && mode === 'pdf-to-cbz' && isPdfAnalysis(analysis) && (
                   <div className="flex gap-2">
                     <button
                       onClick={() => { setMatchPdfSize(true); setDpi(''); }}
@@ -826,19 +923,36 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Format + Quality */}
-                <div className="flex items-center gap-4">
-                  <div className="flex gap-3 text-sm">
-                    <label className="flex items-center cursor-pointer">
-                      <input type="radio" name="format" value="jpeg" checked={format === 'jpeg'} onChange={() => setFormat('jpeg')} className="mr-1.5" />
-                      JPEG
-                    </label>
-                    <label className="flex items-center cursor-pointer">
-                      <input type="radio" name="format" value="png" checked={format === 'png'} onChange={() => setFormat('png')} className="mr-1.5" />
-                      PNG
-                    </label>
+                {/* Format + Quality - PDF mode only for format selection */}
+                {mode === 'pdf-to-cbz' ? (
+                  <div className="flex items-center gap-4">
+                    <div className="flex gap-3 text-sm">
+                      <label className="flex items-center cursor-pointer">
+                        <input type="radio" name="format" value="jpeg" checked={format === 'jpeg'} onChange={() => setFormat('jpeg')} className="mr-1.5" />
+                        JPEG
+                      </label>
+                      <label className="flex items-center cursor-pointer">
+                        <input type="radio" name="format" value="png" checked={format === 'png'} onChange={() => setFormat('png')} className="mr-1.5" />
+                        PNG
+                      </label>
+                    </div>
+                    {format === 'jpeg' && (
+                      <div className="flex-1 flex items-center gap-2">
+                        <input
+                          type="range"
+                          min="50"
+                          max="100"
+                          value={quality}
+                          onChange={(e) => setQuality(parseInt(e.target.value, 10))}
+                          className="flex-1 accent-blue-500"
+                        />
+                        <span className="text-sm text-gray-400 w-10">{quality}%</span>
+                      </div>
+                    )}
                   </div>
-                  {format === 'jpeg' && (
+                ) : (
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-400">JPEG Quality:</span>
                     <div className="flex-1 flex items-center gap-2">
                       <input
                         type="range"
@@ -846,12 +960,12 @@ export default function Home() {
                         max="100"
                         value={quality}
                         onChange={(e) => setQuality(parseInt(e.target.value, 10))}
-                        className="flex-1 accent-blue-500"
+                        className="flex-1 accent-green-500"
                       />
                       <span className="text-sm text-gray-400 w-10">{quality}%</span>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -860,16 +974,16 @@ export default function Home() {
               <button
                 onClick={handleConvert}
                 disabled={!file || isConverting || isExtracting}
-                className="px-3 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors"
+                className={`px-3 py-3 ${mode === 'pdf-to-cbz' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-green-600 hover:bg-green-500'} disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors`}
               >
-                {isConverting ? 'Converting...' : `Convert (~${estimatedSize?.toFixed(0) || '?'}MB)`}
+                {isConverting ? 'Converting...' : mode === 'pdf-to-cbz' ? `Convert (~${estimatedSize?.toFixed(0) || '?'}MB)` : 'Convert to PDF'}
               </button>
               <button
                 onClick={handleDirectExtract}
                 disabled={!file || isExtracting || isConverting}
-                className="px-3 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors"
+                className={`px-3 py-3 ${mode === 'pdf-to-cbz' ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors`}
               >
-                {isExtracting ? 'Extracting...' : 'Direct Extract'}
+                {isExtracting ? 'Extracting...' : 'Direct'}
               </button>
             </div>
 
@@ -916,7 +1030,7 @@ export default function Home() {
                 )}
               </h3>
               <div className="flex items-center gap-2">
-                {analysis && previewUrl && !compareMode && (
+                {analysis && previewUrl && !compareMode && mode === 'pdf-to-cbz' && (
                   <button
                     onClick={loadComparisonImages}
                     className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded text-sm font-medium"
@@ -983,7 +1097,13 @@ export default function Home() {
                       <svg className="w-16 h-16 mx-auto mb-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      <p>Upload a PDF to see preview</p>
+                      {mode === 'pdf-to-cbz' ? (
+                        <p>Upload a PDF to see preview</p>
+                      ) : analysis ? (
+                        <p className="text-green-400">CBZ ready for conversion ({analysis.pageCount} images)</p>
+                      ) : (
+                        <p>Upload a CBZ file to convert</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1111,7 +1231,7 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="mt-4 text-center text-gray-600 text-xs">
-          PDF to CBZ Converter
+          PDF ↔ CBZ Converter
         </footer>
       </div>
     </div>

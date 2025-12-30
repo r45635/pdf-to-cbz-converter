@@ -11,12 +11,14 @@ import {
   BatchSettings,
   BatchConfig,
   BatchSSEEvent,
+  BatchConversionMode,
   DEFAULT_BATCH_SETTINGS,
   DEFAULT_BATCH_CONFIG,
 } from '@/lib/batch-types';
 
 export default function BatchPage() {
   // State
+  const [mode, setMode] = useState<BatchConversionMode>('pdf-to-cbz');
   const [config, setConfig] = useState<BatchConfig>(DEFAULT_BATCH_CONFIG);
   const [settings, setSettings] = useState<BatchSettings>(DEFAULT_BATCH_SETTINGS);
   const [job, setJob] = useState<BatchJobState>({
@@ -29,6 +31,21 @@ export default function BatchPage() {
   const [showResults, setShowResults] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Handle mode change - clear files when mode changes
+  const handleModeChange = useCallback((newMode: BatchConversionMode) => {
+    if (newMode !== mode) {
+      setMode(newMode);
+      setJob({
+        jobId: null,
+        status: 'idle',
+        files: [],
+        expiresAt: null,
+      });
+      setError(null);
+      setShowResults(false);
+    }
+  }, [mode]);
 
   // Load config from server
   useEffect(() => {
@@ -129,16 +146,23 @@ export default function BatchPage() {
     job.files.forEach((f, i) => {
       formData.append(`file${i}`, f.file);
     });
-    formData.append('dpi', settings.dpi.toString());
-    formData.append('format', settings.format);
+
+    // Add settings based on mode
+    if (mode === 'pdf-to-cbz') {
+      formData.append('dpi', settings.dpi.toString());
+      formData.append('format', settings.format);
+    }
     formData.append('quality', settings.quality.toString());
     formData.append('expireMinutes', settings.expireMinutes.toString());
 
     // Create abort controller
     abortControllerRef.current = new AbortController();
 
+    // Select API endpoint based on mode
+    const endpoint = mode === 'pdf-to-cbz' ? '/api/batch-convert' : '/api/batch-convert-cbz';
+
     try {
-      const response = await fetch('/api/batch-convert', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
         signal: abortControllerRef.current.signal,
@@ -182,7 +206,7 @@ export default function BatchPage() {
         setJob((prev) => ({ ...prev, status: 'failed' }));
       }
     }
-  }, [job.files, settings]);
+  }, [job.files, settings, mode]);
 
   // Handle SSE events
   const handleSSEEvent = useCallback((event: BatchSSEEvent) => {
@@ -335,9 +359,33 @@ export default function BatchPage() {
       <div className="container mx-auto px-4 py-6 max-w-4xl">
         {/* Header */}
         <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-blue-400">Conversion Batch</h1>
-            <p className="text-sm text-gray-400">Convertissez plusieurs PDFs en CBZ simultanément</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-blue-400">Conversion Batch</h1>
+              <p className="text-sm text-gray-400">
+                {mode === 'pdf-to-cbz'
+                  ? 'Convertissez plusieurs PDFs en CBZ simultanément'
+                  : 'Convertissez plusieurs CBZs en PDF simultanément'}
+              </p>
+            </div>
+            <div className="flex bg-gray-800 rounded-lg p-1">
+              <button
+                onClick={() => handleModeChange('pdf-to-cbz')}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  mode === 'pdf-to-cbz' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                PDF → CBZ
+              </button>
+              <button
+                onClick={() => handleModeChange('cbz-to-pdf')}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                  mode === 'cbz-to-pdf' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                CBZ → PDF
+              </button>
+            </div>
           </div>
           <Link
             href="/"
@@ -382,6 +430,7 @@ export default function BatchPage() {
               onClearAll={handleClearAll}
               config={config}
               disabled={isProcessing}
+              mode={mode}
             />
 
             {/* Action Buttons */}
@@ -454,13 +503,14 @@ export default function BatchPage() {
               config={config}
               onConfigChange={setConfig}
               disabled={isProcessing}
+              mode={mode}
             />
           </div>
         </div>
 
         {/* Footer */}
         <footer className="mt-8 text-center text-gray-600 text-xs">
-          PDF to CBZ Converter - Mode Batch
+          PDF ↔ CBZ Converter - Mode Batch
         </footer>
       </div>
     </div>

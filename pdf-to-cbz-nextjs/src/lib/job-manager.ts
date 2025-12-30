@@ -384,7 +384,8 @@ export function formatSSE(event: BatchEvent): string {
 // Validation helpers
 export function validateBatchRequest(
   files: Array<{ name: string; size: number }>,
-  clientLimits?: { maxFiles?: number; maxFileSizeMB?: number }
+  clientLimits?: { maxFiles?: number; maxFileSizeMB?: number },
+  expectedExtension: '.pdf' | '.cbz' = '.pdf'
 ): { valid: boolean; error?: string } {
   if (files.length === 0) {
     return { valid: false, error: 'No files provided' };
@@ -404,14 +405,15 @@ export function validateBatchRequest(
     return { valid: false, error: `Maximum ${maxFiles} files allowed` };
   }
 
+  const extLabel = expectedExtension === '.pdf' ? 'PDF' : 'CBZ';
   for (const file of files) {
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > maxFileSizeMB) {
       return { valid: false, error: `File "${file.name}" exceeds ${maxFileSizeMB}MB limit` };
     }
 
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      return { valid: false, error: `File "${file.name}" is not a PDF` };
+    if (!file.name.toLowerCase().endsWith(expectedExtension)) {
+      return { valid: false, error: `File "${file.name}" is not a ${extLabel}` };
     }
   }
 

@@ -9,8 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@types/jszip": "^3.4.0",
     "archiver": "^7.0.1",
     "canvas": "^3.2.0",
+    "jszip": "^3.10.1",
     "next": "16.1.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",

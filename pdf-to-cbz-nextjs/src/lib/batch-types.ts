@@ -1,5 +1,7 @@
 // Shared types for batch conversion frontend
 
+export type BatchConversionMode = 'pdf-to-cbz' | 'cbz-to-pdf';
+
 export interface BatchFileState {
   id: string;
   file: File;

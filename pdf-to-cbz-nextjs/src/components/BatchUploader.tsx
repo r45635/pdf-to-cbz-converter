@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
-import { BatchConfig, BatchFileState } from '@/lib/batch-types';
+import { BatchConfig, BatchFileState, BatchConversionMode } from '@/lib/batch-types';
 
 interface BatchUploaderProps {
   files: BatchFileState[];
@@ -10,6 +10,7 @@ interface BatchUploaderProps {
   onClearAll: () => void;
   config: BatchConfig;
   disabled?: boolean;
+  mode: BatchConversionMode;
 }
 
 export default function BatchUploader({
@@ -19,7 +20,10 @@ export default function BatchUploader({
   onClearAll,
   config,
   disabled = false,
+  mode,
 }: BatchUploaderProps) {
+  const fileExtension = mode === 'pdf-to-cbz' ? '.pdf' : '.cbz';
+  const fileTypeName = mode === 'pdf-to-cbz' ? 'PDF' : 'CBZ';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const totalSizeMB = files.reduce((sum, f) => sum + f.originalSizeMB, 0);
@@ -31,14 +35,14 @@ export default function BatchUploader({
       if (disabled) return;
 
       const droppedFiles = Array.from(e.dataTransfer.files).filter(
-        (f) => f.name.toLowerCase().endsWith('.pdf')
+        (f) => f.name.toLowerCase().endsWith(fileExtension)
       );
 
       if (droppedFiles.length > 0) {
         onFilesAdd(droppedFiles);
       }
     },
-    [disabled, onFilesAdd]
+    [disabled, onFilesAdd, fileExtension]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -123,7 +127,7 @@ export default function BatchUploader({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf"
+          accept={fileExtension}
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -147,7 +151,7 @@ export default function BatchUploader({
 
           {files.length === 0 ? (
             <p className="text-gray-400">
-              Glissez vos PDFs ici ou cliquez pour parcourir
+              Glissez vos {fileTypeName}s ici ou cliquez pour parcourir
             </p>
           ) : canAddMore ? (
             <p className="text-gray-400">
