@@ -2,19 +2,19 @@
 """
 pdf_to_cbz_gui.py
 
-Convert a PDF into a CBZ (ZIP of images) using PyMuPDF (fitz) for rasterization,
-with multiprocessing and in-memory zipping. No external Poppler binaries are required.
+Bidirectional converter between PDF and comic book archive formats (CBZ/CBR/CB7/CBT).
 
-Supports both CLI and GUI modes. If run with arguments, operates as a CLI tool
-(similar to pdf_to_cbz.py). If run without arguments, launches a Tkinter-based GUI
-allowing users to configure options, choose files via dialogs, and track progress
-with a graphical progress bar. In GUI “Analyse only” mode (or via “Compute Analysis”), it shows:
-  - Actual input PDF file size
-  - Recommended DPI based on page width
-  - Estimated per-page image size at recommended DPI
-  - Projected total CBZ size at recommended DPI
+Features:
+- PDF to CBZ: Convert PDF files to CBZ (ZIP of images) using PyMuPDF for rasterization
+- CBZ to PDF: Convert comic book archives (CBZ/CBR/CB7/CBT) back to PDF
 
-Additionally, you can compute these analysis metrics at any time via the "Compute Analysis" button before running.
+Supports both CLI and GUI modes. If run with arguments, operates as a CLI tool.
+If run without arguments, launches a Tkinter-based GUI with:
+  - Conversion mode selection (PDF→CBZ or CBZ→PDF)
+  - File selection dialogs for input/output
+  - Progress tracking with graphical progress bar
+  - Analysis mode to preview conversion settings
+  - Preview window for PDF→CBZ with zoom comparison
 """
 import argparse
 import io
@@ -56,6 +56,17 @@ try:
 except ImportError:
     # Fallback if modules aren't available
     ConfigManager = None
+
+# Import CBZ to PDF converter
+try:
+    from cbz_to_pdf import CBZConverter, IMG2PDF_AVAILABLE, RARFILE_AVAILABLE, PY7ZR_AVAILABLE
+    CBZ_TO_PDF_AVAILABLE = True
+except ImportError:
+    CBZ_TO_PDF_AVAILABLE = False
+    CBZConverter = None
+    IMG2PDF_AVAILABLE = False
+    RARFILE_AVAILABLE = False
+    PY7ZR_AVAILABLE = False
 
 
 def setup_logging(logfile: Path | None = None, debug: bool = False):
@@ -302,19 +313,29 @@ def parse_args():
 class PDF2CBZGui:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDF → CBZ Converter")
-        
+        self.root.title("PDF ↔ CBZ Converter")
+
+        # Conversion mode: "pdf_to_cbz" or "cbz_to_pdf"
+        self.conversion_mode = tk.StringVar(value="pdf_to_cbz")
+
         # Initialize configuration
         self.config_manager = ConfigManager() if ConfigManager else None
         self.load_config_values()
-        
+
         self.create_widgets()
 
+        # Use 'clam' theme for better color customization on macOS
+        style = ttk.Style()
+        style.theme_use('clam')
+
         # Install menu and theme support
-        self._theme_mode = tk.StringVar(value="Dark")
+        self._theme_mode = tk.StringVar(value="Auto")
         self._install_menubar()
-        # Apply dark theme on startup (neutral dark palette)
-        self.apply_theme("Dark")
+        # Apply system theme on startup
+        self.apply_theme(self._detect_system_theme())
+
+        # Update UI based on initial mode (don't clear files on startup)
+        self._update_mode_ui()
     
     def load_config_values(self):
         """Load default values from configuration."""
@@ -337,99 +358,223 @@ class PDF2CBZGui:
     def create_widgets(self):
         pad = {"padx": 5, "pady": 5}
 
-        # Input PDF
-        tk.Label(self.root, text="Input PDF:").grid(row=0, column=0, sticky="e", **pad)
+        # Conversion Mode Selector
+        mode_frame = tk.Frame(self.root)
+        mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", **pad)
+        tk.Label(mode_frame, text="Mode:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Radiobutton(
+            mode_frame, text="PDF → CBZ", variable=self.conversion_mode,
+            value="pdf_to_cbz", command=self._on_mode_change
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(
+            mode_frame, text="CBZ → PDF", variable=self.conversion_mode,
+            value="cbz_to_pdf", command=self._on_mode_change
+        ).pack(side=tk.LEFT, padx=5)
+
+        # CBZ to PDF availability indicator
+        if CBZ_TO_PDF_AVAILABLE:
+            status_text = "img2pdf: " + ("✓" if IMG2PDF_AVAILABLE else "✗")
+            if RARFILE_AVAILABLE:
+                status_text += " | CBR: ✓"
+            if PY7ZR_AVAILABLE:
+                status_text += " | CB7: ✓"
+            tk.Label(mode_frame, text=status_text, font=("Arial", 8), fg="gray").pack(side=tk.RIGHT, padx=5)
+
+        # Input file
+        self.input_label = tk.Label(self.root, text="Input PDF:")
+        self.input_label.grid(row=1, column=0, sticky="e", **pad)
         self.input_var = tk.StringVar()
-        tk.Entry(self.root, textvariable=self.input_var, width=50).grid(row=0, column=1, **pad)
-        tk.Button(self.root, text="Browse...", command=self.browse_input).grid(row=0, column=2, **pad)
+        tk.Entry(self.root, textvariable=self.input_var, width=50).grid(row=1, column=1, **pad)
+        ttk.Button(self.root, text="Browse...", command=self.browse_input).grid(row=1, column=2, **pad)
 
-        # Output CBZ
-        tk.Label(self.root, text="Output CBZ:").grid(row=1, column=0, sticky="e", **pad)
+        # Output file
+        self.output_label = tk.Label(self.root, text="Output CBZ:")
+        self.output_label.grid(row=2, column=0, sticky="e", **pad)
         self.output_var = tk.StringVar()
-        tk.Entry(self.root, textvariable=self.output_var, width=50).grid(row=1, column=1, **pad)
-        tk.Button(self.root, text="Browse...", command=self.browse_output).grid(row=1, column=2, **pad)
+        tk.Entry(self.root, textvariable=self.output_var, width=50).grid(row=2, column=1, **pad)
+        ttk.Button(self.root, text="Browse...", command=self.browse_output).grid(row=2, column=2, **pad)
 
-        # DPI
-        tk.Label(self.root, text="DPI:").grid(row=2, column=0, sticky="e", **pad)
+        # DPI (PDF→CBZ only)
+        self.dpi_label = tk.Label(self.root, text="DPI:")
+        self.dpi_label.grid(row=3, column=0, sticky="e", **pad)
         self.dpi_var = tk.StringVar(value=str(self.default_dpi) if self.default_dpi else "")
-        dpi_frame = tk.Frame(self.root)
-        dpi_frame.grid(row=2, column=1, sticky="w", **pad)
-        tk.Entry(dpi_frame, textvariable=self.dpi_var, width=10).pack(side=tk.LEFT)
-        tk.Label(dpi_frame, text="(auto if empty)", font=("Arial", 8), fg="gray").pack(side=tk.LEFT, padx=5)
+        self.dpi_frame = tk.Frame(self.root)
+        self.dpi_frame.grid(row=3, column=1, sticky="w", **pad)
+        tk.Entry(self.dpi_frame, textvariable=self.dpi_var, width=10).pack(side=tk.LEFT)
+        tk.Label(self.dpi_frame, text="(auto if empty)", font=("Arial", 8), fg="gray").pack(side=tk.LEFT, padx=5)
 
-        # Format
-        tk.Label(self.root, text="Format:").grid(row=3, column=0, sticky="e", **pad)
+        # Format (PDF→CBZ only)
+        self.format_label = tk.Label(self.root, text="Format:")
+        self.format_label.grid(row=4, column=0, sticky="e", **pad)
         self.format_var = tk.StringVar(value=str(self.default_format) if self.default_format else 'jpeg')
-        format_frame = tk.Frame(self.root)
-        format_frame.grid(row=3, column=1, sticky="w", **pad)
-        tk.OptionMenu(format_frame, self.format_var, "jpeg", "png").pack(side=tk.LEFT)
-        tk.Button(format_frame, text="?", command=self.show_format_help, width=2).pack(side=tk.LEFT, padx=5)
+        self.format_frame = tk.Frame(self.root)
+        self.format_frame.grid(row=4, column=1, sticky="w", **pad)
+        tk.OptionMenu(self.format_frame, self.format_var, "jpeg", "png").pack(side=tk.LEFT)
+        ttk.Button(self.format_frame, text="?", command=self.show_format_help, width=2).pack(side=tk.LEFT, padx=5)
 
         # Quality
-        tk.Label(self.root, text="JPEG Quality:").grid(row=4, column=0, sticky="e", **pad)
+        self.quality_label = tk.Label(self.root, text="JPEG Quality:")
+        self.quality_label.grid(row=5, column=0, sticky="e", **pad)
         try:
             _q = int(str(self.default_quality).strip()) if self.default_quality is not None else 85
         except Exception:
             _q = 85
         self.quality_var = tk.IntVar(value=_q)
-        quality_frame = tk.Frame(self.root)
-        quality_frame.grid(row=4, column=1, sticky="w", **pad)
-        tk.Entry(quality_frame, textvariable=self.quality_var, width=10).pack(side=tk.LEFT)
-        tk.Scale(quality_frame, from_=10, to=100, orient=tk.HORIZONTAL, variable=self.quality_var, length=100).pack(side=tk.LEFT, padx=5)
+        self.quality_frame = tk.Frame(self.root)
+        self.quality_frame.grid(row=5, column=1, sticky="w", **pad)
+        tk.Entry(self.quality_frame, textvariable=self.quality_var, width=10).pack(side=tk.LEFT)
+        tk.Scale(self.quality_frame, from_=10, to=100, orient=tk.HORIZONTAL, variable=self.quality_var, length=100).pack(side=tk.LEFT, padx=5)
 
         # Threads
-        tk.Label(self.root, text="Threads:").grid(row=5, column=0, sticky="e", **pad)
+        tk.Label(self.root, text="Threads:").grid(row=6, column=0, sticky="e", **pad)
         self.threads_var = tk.StringVar(value=str(self.default_threads))
         threads_frame = tk.Frame(self.root)
-        threads_frame.grid(row=5, column=1, sticky="w", **pad)
+        threads_frame.grid(row=6, column=1, sticky="w", **pad)
         tk.Entry(threads_frame, textvariable=self.threads_var, width=10).pack(side=tk.LEFT)
-        tk.Button(threads_frame, text="Auto", command=self.set_auto_threads, width=6).pack(side=tk.LEFT, padx=5)
+        ttk.Button(threads_frame, text="Auto", command=self.set_auto_threads, width=6).pack(side=tk.LEFT, padx=5)
 
-        # Poppler Path (legacy, no longer required)
-        tk.Label(self.root, text="Poppler Path (legacy):").grid(row=6, column=0, sticky="e", **pad)
+        # Poppler Path (legacy, no longer required) - PDF→CBZ only
+        self.poppler_label = tk.Label(self.root, text="Poppler Path (legacy):")
+        self.poppler_label.grid(row=7, column=0, sticky="e", **pad)
         self.poppler_var = tk.StringVar()
-        tk.Entry(self.root, textvariable=self.poppler_var, width=50).grid(row=6, column=1, **pad)
-        tk.Button(self.root, text="Browse...", command=self.browse_poppler).grid(row=6, column=2, **pad)
+        self.poppler_entry = tk.Entry(self.root, textvariable=self.poppler_var, width=50)
+        self.poppler_entry.grid(row=7, column=1, **pad)
+        self.poppler_button = ttk.Button(self.root, text="Browse...", command=self.browse_poppler)
+        self.poppler_button.grid(row=7, column=2, **pad)
 
         # Logfile
-        tk.Label(self.root, text="Log File:").grid(row=7, column=0, sticky="e", **pad)
+        tk.Label(self.root, text="Log File:").grid(row=8, column=0, sticky="e", **pad)
         self.logfile_var = tk.StringVar()
-        tk.Entry(self.root, textvariable=self.logfile_var, width=50).grid(row=7, column=1, **pad)
-        tk.Button(self.root, text="Browse...", command=self.browse_logfile).grid(row=7, column=2, **pad)
+        tk.Entry(self.root, textvariable=self.logfile_var, width=50).grid(row=8, column=1, **pad)
+        ttk.Button(self.root, text="Browse...", command=self.browse_logfile).grid(row=8, column=2, **pad)
 
         # Analyse and Debug Checkboxes
         checkbox_frame = tk.Frame(self.root)
-        checkbox_frame.grid(row=8, column=0, columnspan=2, sticky="w", **pad)
+        checkbox_frame.grid(row=9, column=0, columnspan=2, sticky="w", **pad)
         self.analyse_var = tk.BooleanVar()
         tk.Checkbutton(checkbox_frame, text="Analyse only (no conversion)", variable=self.analyse_var).pack(side=tk.LEFT)
         self.debug_var = tk.BooleanVar()
         tk.Checkbutton(checkbox_frame, text="Debug Mode", variable=self.debug_var).pack(side=tk.LEFT, padx=10)
-        
-        tk.Button(self.root, text="Compute Analysis", command=self.compute_analysis).grid(row=8, column=2, sticky="w", **pad)
+
+        self.analyse_button = ttk.Button(self.root, text="Compute Analysis", command=self.compute_analysis)
+        self.analyse_button.grid(row=9, column=2, sticky="w", **pad)
 
         # Progress Bar
         self.progress = ttk.Progressbar(self.root, orient="horizontal", length=400, mode="determinate")
-        self.progress.grid(row=9, column=0, columnspan=3, **pad)
+        self.progress.grid(row=10, column=0, columnspan=3, **pad)
 
         # Output Text (for analysis results)
         self.text_area = scrolledtext.ScrolledText(self.root, width=60, height=15, state="disabled")
-        self.text_area.grid(row=10, column=0, columnspan=3, rowspan=5, **pad)
+        self.text_area.grid(row=11, column=0, columnspan=3, rowspan=5, **pad)
 
         # Configuration and Help Buttons
         config_frame = tk.Frame(self.root)
-        config_frame.grid(row=15, column=0, columnspan=3, pady=5)
-        
-        tk.Button(config_frame, text="Save Config", command=self.save_current_config).pack(side=tk.LEFT, padx=5)
-        tk.Button(config_frame, text="Load Config", command=self.load_config_file).pack(side=tk.LEFT, padx=5)
-        tk.Button(config_frame, text="Show Hints", command=self.show_hints).pack(side=tk.LEFT, padx=5)
-        
+        config_frame.grid(row=16, column=0, columnspan=3, pady=5)
+
+        ttk.Button(config_frame, text="Save Config", command=self.save_current_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(config_frame, text="Load Config", command=self.load_config_file).pack(side=tk.LEFT, padx=5)
+        ttk.Button(config_frame, text="Show Hints", command=self.show_hints).pack(side=tk.LEFT, padx=5)
+
         # Run and Quit Buttons
         button_frame = tk.Frame(self.root)
-        button_frame.grid(row=16, column=0, columnspan=3, pady=10)
-        
-        tk.Button(button_frame, text="Run", command=self.start_process, bg="lightgreen", width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Preview", command=self.open_preview_window).pack(side=tk.LEFT, padx=5)
-        tk.Button(button_frame, text="Quit", command=self.root.quit, width=10).pack(side=tk.LEFT, padx=5)
+        button_frame.grid(row=17, column=0, columnspan=3, pady=10)
+
+        self.run_button = ttk.Button(button_frame, text="Run", command=self.start_process, style="Run.TButton", width=10)
+        self.run_button.pack(side=tk.LEFT, padx=5)
+        self.preview_button = ttk.Button(button_frame, text="Preview", command=self.open_preview_window, style="Preview.TButton")
+        self.preview_button.pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Quit", command=self.root.quit, style="Quit.TButton", width=10).pack(side=tk.LEFT, padx=5)
+
+    def _update_mode_ui(self):
+        """Update UI elements based on selected conversion mode (without clearing files)."""
+        mode = self.conversion_mode.get()
+
+        if mode == "pdf_to_cbz":
+            # PDF to CBZ mode
+            self.root.title("PDF → CBZ Converter")
+            self.input_label.config(text="Input PDF:")
+            self.output_label.config(text="Output CBZ:")
+
+            # Show PDF→CBZ specific options
+            self.dpi_label.grid()
+            self.dpi_frame.grid()
+            self.format_label.grid()
+            self.format_frame.grid()
+            self.poppler_label.grid()
+            self.poppler_entry.grid()
+            self.poppler_button.grid()
+
+            # Update quality label
+            self.quality_label.config(text="JPEG Quality:")
+
+            # Enable Preview button (only for PDF→CBZ)
+            self.preview_button.config(state="normal")
+
+        else:  # cbz_to_pdf
+            # CBZ to PDF mode
+            self.root.title("CBZ → PDF Converter")
+            self.input_label.config(text="Input CBZ/CBR/CB7:")
+            self.output_label.config(text="Output PDF:")
+
+            # Hide PDF→CBZ specific options
+            self.dpi_label.grid_remove()
+            self.dpi_frame.grid_remove()
+            self.format_label.grid_remove()
+            self.format_frame.grid_remove()
+            self.poppler_label.grid_remove()
+            self.poppler_entry.grid_remove()
+            self.poppler_button.grid_remove()
+
+            # Update quality label for CBZ→PDF (used if img2pdf not available)
+            self.quality_label.config(text="Quality (fallback):")
+
+            # Enable Preview button for CBZ→PDF too
+            self.preview_button.config(state="normal")
+
+    def _on_mode_change(self):
+        """Handle user-initiated mode change."""
+        self._update_mode_ui()
+
+        # Clear input/output when mode changes
+        self.input_var.set("")
+        self.output_var.set("")
+
+        # Reapply current theme to new/modified widgets
+        theme_mode = self._theme_mode.get()
+        if theme_mode == "Auto":
+            self.apply_theme(self._detect_system_theme())
+        else:
+            self.apply_theme(theme_mode)
+
+    def _detect_system_theme(self) -> str:
+        """Detect system theme (Dark/Light) on macOS."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0 and "Dark" in result.stdout:
+                return "Dark"
+        except Exception:
+            pass
+        return "Light"
+
+    def _open_file(self, file_path: Path):
+        """Open a file with the system default application."""
+        import subprocess
+        import platform
+        try:
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                subprocess.run(["open", str(file_path)], check=True)
+            elif system == "Windows":
+                subprocess.run(["start", "", str(file_path)], shell=True, check=True)
+            else:  # Linux
+                subprocess.run(["xdg-open", str(file_path)], check=True)
+        except Exception as e:
+            logging.error(f"Failed to open file: {e}")
+            messagebox.showerror("Error", f"Could not open file:\n{e}")
 
     def _install_menubar(self):
         menubar = tk.Menu(self.root)
@@ -437,6 +582,12 @@ class PDF2CBZGui:
         # View menu with Theme submenu
         view_menu = tk.Menu(menubar, tearoff=0)
         theme_menu = tk.Menu(view_menu, tearoff=0)
+        theme_menu.add_radiobutton(
+            label="Auto (System)",
+            variable=self._theme_mode,
+            value="Auto",
+            command=lambda: self.apply_theme(self._detect_system_theme()),
+        )
         theme_menu.add_radiobutton(
             label="Dark",
             variable=self._theme_mode,
@@ -455,104 +606,275 @@ class PDF2CBZGui:
         self.root.config(menu=menubar)
 
     def apply_theme(self, mode: str = "Dark"):
-        """Apply a simple dark/light theme across Tk widgets.
-        Note: Tkinter doesn't use QSS (Qt Style Sheets). We approximate the requested palette.
-        Dark palette: bg primary #121212, bg secondary #1E1E1E, text #EDEDED, accent #4DA3FF
-        """
-        dark = {
-            "bg": "#121212",
-            "panel": "#1E1E1E",
-            "text": "#EDEDED",
-            "accent": "#4DA3FF",
-            "button": "#1E1E1E",
-            "button_hover": "#2A2A2A",
-            "button_active": "#333333",
-            "entry_bg": "#1E1E1E",
-            "entry_fg": "#EDEDED",
-            "select_bg": "#2B6EA6",  # derived from accent for readability
-            "select_fg": "#FFFFFF",
-        }
-        light = {
-            "bg": "#F0F0F0",
-            "panel": "#FFFFFF",
-            "text": "#000000",
-            "accent": "#4DA3FF",
-            "button": "#F5F5F5",
-            "button_hover": "#E8E8E8",
-            "button_active": "#DDDDDD",
-            "entry_bg": "#FFFFFF",
-            "entry_fg": "#000000",
-            "select_bg": "#CCE7FF",
-            "select_fg": "#000000",
-        }
-        theme = dark if mode.lower() == "dark" else light
+        """Apply theme to all widgets. Handles both dark and light modes."""
+        is_dark = mode.lower() == "dark"
 
-        # Root and top-levels
-        try:
-            self.root.configure(bg=theme["bg"])
-        except Exception:
-            pass
+        if is_dark:
+            theme = {
+                "bg": "#2b2b2b",
+                "fg": "#ffffff",
+                "entry_bg": "#3c3c3c",
+                "entry_fg": "#ffffff",
+                "button_bg": "#404040",
+                "button_fg": "#ffffff",
+                "select_bg": "#0078d4",
+                "select_fg": "#ffffff",
+                "disabled_fg": "#808080",
+            }
+        else:
+            theme = {
+                "bg": "#f0f0f0",
+                "fg": "#000000",
+                "entry_bg": "#ffffff",
+                "entry_fg": "#000000",
+                "button_bg": "#e0e0e0",
+                "button_fg": "#000000",
+                "select_bg": "#0078d4",
+                "select_fg": "#ffffff",
+                "disabled_fg": "#808080",
+            }
 
-        # ttk styles (e.g., Progressbar)
-        try:
-            style = ttk.Style(self.root)
-            # Some native themes ignore colors, but we try anyway
-            style.configure("TProgressbar", troughcolor=theme["panel"], background=theme["accent"])
-        except Exception:
-            pass
+        self._current_theme = theme
+        self._current_mode = mode
 
-        # Recursively apply to widgets
-        def apply_to_widget(w):
-            cls = w.__class__
-            # Containers
-            if isinstance(w, (tk.Frame, tk.Toplevel)):
-                safe_config(w, bg=theme["panel"]) if isinstance(w, tk.Frame) else safe_config(w, bg=theme["bg"])
-            # Labels
-            if isinstance(w, tk.Label):
-                safe_config(w, bg=theme["panel"], fg=theme["text"])
-            # Entries / Spinbox
-            if isinstance(w, (tk.Entry, tk.Spinbox)):
-                safe_config(w, bg=theme["entry_bg"], fg=theme["entry_fg"], insertbackground=theme["text"], selectbackground=theme["select_bg"], selectforeground=theme["select_fg"], highlightbackground=theme["panel"], disabledbackground=theme["panel"])
-            # Text/ScrolledText
-            if isinstance(w, (tk.Text, scrolledtext.ScrolledText)):
-                safe_config(w, bg=theme["panel"], fg=theme["text"], insertbackground=theme["text"], selectbackground=theme["select_bg"], selectforeground=theme["select_fg"], highlightbackground=theme["panel"])            
-            # Buttons
-            if isinstance(w, tk.Button):
-                safe_config(w, bg=theme["button"], fg=theme["text"], activebackground=theme["button_active"], activeforeground=theme["text"], highlightbackground=theme["panel"])
-                self._bind_button_hover(w, theme)
-            # Checkbuttons
-            if isinstance(w, tk.Checkbutton):
-                safe_config(w, bg=theme["panel"], fg=theme["text"], activebackground=theme["button_active"], selectcolor=theme["panel"], highlightbackground=theme["panel"])
-            # Scales
-            if isinstance(w, tk.Scale):
-                safe_config(w, bg=theme["panel"], fg=theme["text"], troughcolor=theme["bg"]) if "troughcolor" in w.keys() else safe_config(w, bg=theme["panel"], fg=theme["text"])  
-            # Menubutton/OptionMenu
-            if isinstance(w, tk.Menubutton):
-                safe_config(w, bg=theme["button"], fg=theme["text"], activebackground=theme["button_active"], activeforeground=theme["text"]) 
-                try:
-                    m = w["menu"]
-                    if isinstance(m, tk.Menu):
-                        m.config(bg=theme["panel"], fg=theme["text"], activebackground=theme["button_hover"], activeforeground=theme["text"])
-                except Exception:
-                    pass
-            # Progressbar parent bg
-            if isinstance(w, ttk.Progressbar):
-                try:
-                    w.configure(style="TProgressbar")
-                except Exception:
-                    pass
+        # Apply to root
+        self.root.configure(bg=theme["bg"])
 
-            # Recurse
-            for child in w.winfo_children():
-                apply_to_widget(child)
+        # Configure ttk styles
+        style = ttk.Style()
+        style.configure("TProgressbar",
+            troughcolor=theme["entry_bg"],
+            background=theme["select_bg"]
+        )
 
-        def safe_config(widget, **kwargs):
+        # Configure ttk.Button styles
+        style.configure("TButton",
+            background=theme["button_bg"],
+            foreground=theme["button_fg"],
+            borderwidth=1
+        )
+        style.map("TButton",
+            background=[('active', theme["select_bg"]), ('pressed', theme["select_bg"])],
+            foreground=[('active', theme["select_fg"]), ('pressed', theme["select_fg"])]
+        )
+
+        # Run button (green)
+        run_bg = "#388e3c" if is_dark else "#4caf50"
+        style.configure("Run.TButton",
+            background=run_bg,
+            foreground="#ffffff"
+        )
+        style.map("Run.TButton",
+            background=[('active', '#2e7d32'), ('pressed', '#1b5e20')],
+            foreground=[('active', '#ffffff'), ('pressed', '#ffffff')]
+        )
+
+        # Preview button (blue)
+        preview_bg = "#1976d2" if is_dark else "#2196f3"
+        style.configure("Preview.TButton",
+            background=preview_bg,
+            foreground="#ffffff"
+        )
+        style.map("Preview.TButton",
+            background=[('active', '#1565c0'), ('pressed', '#0d47a1')],
+            foreground=[('active', '#ffffff'), ('pressed', '#ffffff')]
+        )
+
+        # Quit button (red)
+        quit_bg = "#d32f2f" if is_dark else "#f44336"
+        style.configure("Quit.TButton",
+            background=quit_bg,
+            foreground="#ffffff"
+        )
+        style.map("Quit.TButton",
+            background=[('active', '#c62828'), ('pressed', '#b71c1c')],
+            foreground=[('active', '#ffffff'), ('pressed', '#ffffff')]
+        )
+
+        def style_widget(widget):
+            """Apply theme to a single widget based on its type."""
+            cls_name = widget.__class__.__name__
+
             try:
-                widget.configure(**kwargs)
-            except Exception:
-                pass
+                # Get widget type and apply appropriate styling
+                if cls_name in ('Frame', 'Labelframe'):
+                    widget.configure(bg=theme["bg"])
 
-        apply_to_widget(self.root)
+                elif cls_name == 'Label':
+                    widget.configure(bg=theme["bg"], fg=theme["fg"])
+
+                elif cls_name == 'Entry':
+                    widget.configure(
+                        bg=theme["entry_bg"],
+                        fg=theme["entry_fg"],
+                        insertbackground=theme["fg"],
+                        selectbackground=theme["select_bg"],
+                        selectforeground=theme["select_fg"],
+                        disabledbackground=theme["bg"],
+                        disabledforeground=theme["disabled_fg"]
+                    )
+
+                elif cls_name == 'Text':
+                    widget.configure(
+                        bg=theme["entry_bg"],
+                        fg=theme["entry_fg"],
+                        insertbackground=theme["fg"],
+                        selectbackground=theme["select_bg"],
+                        selectforeground=theme["select_fg"]
+                    )
+
+                elif cls_name == 'ScrolledText':
+                    widget.configure(
+                        bg=theme["entry_bg"],
+                        fg=theme["entry_fg"],
+                        insertbackground=theme["fg"],
+                        selectbackground=theme["select_bg"],
+                        selectforeground=theme["select_fg"]
+                    )
+
+                elif cls_name == 'Button':
+                    # Special colors for action buttons
+                    text = str(widget.cget("text")).lower()
+                    if text == "run":
+                        bg = "#388e3c" if is_dark else "#4caf50"
+                        fg = "#ffffff"
+                    elif text == "preview":
+                        bg = "#1976d2" if is_dark else "#2196f3"
+                        fg = "#ffffff"
+                    elif text == "quit":
+                        bg = "#d32f2f" if is_dark else "#f44336"
+                        fg = "#ffffff"
+                    else:
+                        bg = theme["button_bg"]
+                        fg = theme["button_fg"]
+
+                    widget.configure(
+                        bg=bg,
+                        fg=fg,
+                        activebackground=theme["select_bg"],
+                        activeforeground=theme["select_fg"],
+                        highlightbackground=theme["bg"]
+                    )
+
+                elif cls_name == 'Checkbutton':
+                    widget.configure(
+                        bg=theme["bg"],
+                        fg=theme["fg"],
+                        activebackground=theme["bg"],
+                        activeforeground=theme["fg"],
+                        selectcolor=theme["entry_bg"],
+                        highlightbackground=theme["bg"]
+                    )
+
+                elif cls_name == 'Radiobutton':
+                    widget.configure(
+                        bg=theme["bg"],
+                        fg=theme["fg"],
+                        activebackground=theme["bg"],
+                        activeforeground=theme["fg"],
+                        selectcolor=theme["entry_bg"],
+                        highlightbackground=theme["bg"]
+                    )
+
+                elif cls_name == 'Scale':
+                    widget.configure(
+                        bg=theme["bg"],
+                        fg=theme["fg"],
+                        troughcolor=theme["entry_bg"],
+                        activebackground=theme["select_bg"],
+                        highlightbackground=theme["bg"]
+                    )
+
+                elif cls_name == 'Spinbox':
+                    widget.configure(
+                        bg=theme["entry_bg"],
+                        fg=theme["entry_fg"],
+                        insertbackground=theme["fg"],
+                        selectbackground=theme["select_bg"],
+                        selectforeground=theme["select_fg"],
+                        buttonbackground=theme["button_bg"],
+                        highlightbackground=theme["bg"]
+                    )
+
+                elif cls_name in ('Menubutton', 'OptionMenu'):
+                    widget.configure(
+                        bg=theme["button_bg"],
+                        fg=theme["button_fg"],
+                        activebackground=theme["select_bg"],
+                        activeforeground=theme["select_fg"],
+                        highlightbackground=theme["bg"],
+                        highlightcolor=theme["bg"],
+                        highlightthickness=0
+                    )
+                    # Also style the attached menu
+                    try:
+                        menu = widget.nametowidget(widget.cget("menu"))
+                        menu.configure(
+                            bg=theme["bg"],
+                            fg=theme["fg"],
+                            activebackground=theme["select_bg"],
+                            activeforeground=theme["select_fg"]
+                        )
+                    except:
+                        pass
+
+                elif cls_name == 'Menu':
+                    widget.configure(
+                        bg=theme["bg"],
+                        fg=theme["fg"],
+                        activebackground=theme["select_bg"],
+                        activeforeground=theme["select_fg"]
+                    )
+
+                elif cls_name == 'Toplevel':
+                    widget.configure(bg=theme["bg"])
+
+                else:
+                    # Fallback: try to set bg and fg on any unknown widget
+                    try:
+                        widget.configure(bg=theme["bg"])
+                    except:
+                        pass
+                    try:
+                        widget.configure(fg=theme["fg"])
+                    except:
+                        pass
+
+            except Exception:
+                pass  # Some widgets don't support all options
+
+            # Recurse into children
+            for child in widget.winfo_children():
+                style_widget(child)
+
+        # Apply to all widgets
+        style_widget(self.root)
+
+        # Style the menubar
+        try:
+            menu_name = self.root.cget("menu")
+            if menu_name:
+                menubar = self.root.nametowidget(menu_name)
+                menubar.configure(
+                    bg=theme["bg"],
+                    fg=theme["fg"],
+                    activebackground=theme["select_bg"],
+                    activeforeground=theme["select_fg"]
+                )
+                # Style all submenus
+                for i in range(menubar.index('end') + 1):
+                    try:
+                        submenu = menubar.nametowidget(menubar.entrycget(i, 'menu'))
+                        submenu.configure(
+                            bg=theme["bg"],
+                            fg=theme["fg"],
+                            activebackground=theme["select_bg"],
+                            activeforeground=theme["select_fg"]
+                        )
+                    except:
+                        pass
+        except:
+            pass
 
     def _bind_button_hover(self, btn: tk.Button, theme: dict):
         # Attach hover/press states using event bindings
@@ -594,6 +916,13 @@ class PDF2CBZGui:
 
     def open_preview_window(self):
         """Opens a new window to preview conversion settings on a single page."""
+        mode = self.conversion_mode.get()
+
+        if mode == "cbz_to_pdf":
+            self._open_cbz_preview_window()
+            return
+
+        # PDF to CBZ preview
         input_path = self.input_var.get().strip()
         if not input_path or not Path(input_path).is_file():
             messagebox.showerror("Error", "Please select a valid input PDF file first.")
@@ -763,14 +1092,6 @@ class PDF2CBZGui:
         except Exception as e:
             logging.error(f"PyMuPDF render failed (page {page_num} @ {dpi} DPI): {e}")
             raise
-
-    def _fix_zoom_area_size(self):
-        """Force zoom areas to maintain their fixed size."""
-        if hasattr(self, 'zoom_frame_orig') and hasattr(self, 'zoom_frame_conv'):
-            self.zoom_frame_orig.config(width=280, height=140)
-            self.zoom_frame_conv.config(width=280, height=140)
-            self.zoom_frame_orig.grid_propagate(False)
-            self.zoom_frame_conv.grid_propagate(False)
 
     def _on_window_resize(self, event):
         """Handle window resize events with a delay to avoid excessive refreshing."""
@@ -1091,22 +1412,50 @@ class PDF2CBZGui:
 
 
     def browse_input(self):
-        path = filedialog.askopenfilename(
-            title="Select PDF file",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*")]
-        )
-        if path:
-            self.input_var.set(path)
-            # Suggest default output filename
-            out = Path(path).with_suffix(".cbz")
-            self.output_var.set(str(out))
+        mode = self.conversion_mode.get()
+
+        if mode == "pdf_to_cbz":
+            path = filedialog.askopenfilename(
+                title="Select PDF file",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*")]
+            )
+            if path:
+                self.input_var.set(path)
+                out = Path(path).with_suffix(".cbz")
+                self.output_var.set(str(out))
+        else:  # cbz_to_pdf
+            path = filedialog.askopenfilename(
+                title="Select Comic Book Archive",
+                filetypes=[
+                    ("Comic Book Archives", "*.cbz *.cbr *.cb7 *.cbt"),
+                    ("CBZ files", "*.cbz"),
+                    ("CBR files", "*.cbr"),
+                    ("CB7 files", "*.cb7"),
+                    ("CBT files", "*.cbt"),
+                    ("All files", "*")
+                ]
+            )
+            if path:
+                self.input_var.set(path)
+                out = Path(path).with_suffix(".pdf")
+                self.output_var.set(str(out))
 
     def browse_output(self):
-        path = filedialog.asksaveasfilename(
-            title="Select output CBZ file",
-            defaultextension=".cbz",
-            filetypes=[("CBZ files", "*.cbz"), ("ZIP files", "*.zip"), ("All files", "*")]
-        )
+        mode = self.conversion_mode.get()
+
+        if mode == "pdf_to_cbz":
+            path = filedialog.asksaveasfilename(
+                title="Select output CBZ file",
+                defaultextension=".cbz",
+                filetypes=[("CBZ files", "*.cbz"), ("ZIP files", "*.zip"), ("All files", "*")]
+            )
+        else:  # cbz_to_pdf
+            path = filedialog.asksaveasfilename(
+                title="Select output PDF file",
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*")]
+            )
+
         if path:
             self.output_var.set(path)
 
@@ -1155,14 +1504,27 @@ class PDF2CBZGui:
             return default_value
 
     def compute_analysis(self):
+        mode = self.conversion_mode.get()
         input_path = self.input_var.get().strip()
+
         if not input_path:
-            messagebox.showerror("Error", "Please select an input PDF file.")
+            messagebox.showerror("Error", "Please select an input file.")
             return
-        pdf_path = Path(input_path)
-        if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf":
-            messagebox.showerror("Error", f"Invalid PDF file: {pdf_path}")
+
+        file_path = Path(input_path)
+        if not file_path.is_file():
+            messagebox.showerror("Error", f"File not found: {file_path}")
             return
+
+        # Validate file extension based on mode
+        if mode == "pdf_to_cbz":
+            if file_path.suffix.lower() != ".pdf":
+                messagebox.showerror("Error", f"Invalid PDF file: {file_path}")
+                return
+        else:  # cbz_to_pdf
+            if file_path.suffix.lower() not in ('.cbz', '.cbr', '.cb7', '.cbt'):
+                messagebox.showerror("Error", f"Invalid comic book archive: {file_path}")
+                return
 
         # Clear text area
         self.text_area.configure(state="normal")
@@ -1181,72 +1543,110 @@ class PDF2CBZGui:
 
             logging.debug(f"Starting analysis with quality={quality_val}, threads={threads_val}")
 
-            conv = Converter(
-                input_pdf=pdf_path,
-                output_cbz=Path(""),  # not used here
-                dpi=None,
-                fmt=self.format_var.get(),
-                quality=quality_val,
-                threads=threads_val,
-                poppler_path=Path(self.poppler_var.get()) if self.poppler_var.get().strip() else None,
-            )
-            # 1. DPI analysis
-            analysis_text = conv.analyse()
-            self.append_text("=== DPI Analysis ===")
-            for line in analysis_text.splitlines():
-                self.append_text(line)
+            if mode == "pdf_to_cbz":
+                # PDF to CBZ analysis
+                conv = Converter(
+                    input_pdf=file_path,
+                    output_cbz=Path(""),  # not used here
+                    dpi=None,
+                    fmt=self.format_var.get(),
+                    quality=quality_val,
+                    threads=threads_val,
+                    poppler_path=Path(self.poppler_var.get()) if self.poppler_var.get().strip() else None,
+                )
+                # 1. DPI analysis
+                analysis_text = conv.analyse()
+                self.append_text("=== PDF → CBZ Analysis ===")
+                for line in analysis_text.splitlines():
+                    self.append_text(line)
 
-            # 2. Actual input file size
-            file_size = pdf_path.stat().st_size
-            readable_file_size = format_size(file_size)
-            self.append_text(f"\nActual PDF file size: {readable_file_size}")
+                # 2. Actual input file size
+                file_size = file_path.stat().st_size
+                readable_file_size = format_size(file_size)
+                self.append_text(f"\nActual PDF file size: {readable_file_size}")
 
-            # 3. Recommended DPI
-            recommended_dpi = conv.calculate_clarity_dpi()
-            self.append_text(f"Recommended DPI based on first page: {recommended_dpi}")
+                # 3. Recommended DPI
+                recommended_dpi = conv.calculate_clarity_dpi()
+                self.append_text(f"Recommended DPI based on first page: {recommended_dpi}")
 
-            # 4. Number of pages
-            reader = PdfReader(str(pdf_path))
-            total_pages = len(reader.pages)
-            self.append_text(f"Total pages: {total_pages}")
+                # 4. Number of pages
+                reader = PdfReader(str(file_path))
+                total_pages = len(reader.pages)
+                self.append_text(f"Total pages: {total_pages}")
 
-            # 5. Estimate per-page image size at recommended DPI
-            try:
-                # Render first page via PyMuPDF at recommended DPI
-                img = self._render_page_pil(str(pdf_path), 1, recommended_dpi)
-                buf = io.BytesIO()
-                save_fmt = self.format_var.get().upper()
-                save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
-                img.save(buf, format=save_fmt, **save_kwargs)
-                per_page_bytes = len(buf.getvalue())
-                readable_per_page = format_size(per_page_bytes)
-                projected_total = per_page_bytes * total_pages
-                readable_projected = format_size(projected_total)
+                # 5. Estimate per-page image size at recommended DPI
+                try:
+                    img = self._render_page_pil(str(file_path), 1, recommended_dpi)
+                    buf = io.BytesIO()
+                    save_fmt = self.format_var.get().upper()
+                    save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
+                    img.save(buf, format=save_fmt, **save_kwargs)
+                    per_page_bytes = len(buf.getvalue())
+                    readable_per_page = format_size(per_page_bytes)
+                    projected_total = per_page_bytes * total_pages
+                    readable_projected = format_size(projected_total)
 
-                self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
-                self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
-            except Exception as e:
-                logging.error(f"Error during size projection: {e}")
-                self.append_text(f"\nError estimating output size: {e}")
+                    self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
+                    self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
+                except Exception as e:
+                    logging.error(f"Error during size projection: {e}")
+                    self.append_text(f"\nError estimating output size: {e}")
+
+            else:  # cbz_to_pdf
+                # CBZ to PDF analysis
+                if not CBZ_TO_PDF_AVAILABLE:
+                    messagebox.showerror("Error", "CBZ to PDF conversion is not available. Missing cbz_to_pdf module.")
+                    return
+
+                cbz_conv = CBZConverter(
+                    input_path=file_path,
+                    output_pdf=Path(""),  # not used here
+                    quality=quality_val,
+                    use_img2pdf=IMG2PDF_AVAILABLE,
+                    threads=threads_val,
+                )
+                analysis_text = cbz_conv.analyse()
+                self.append_text("=== CBZ → PDF Analysis ===")
+                for line in analysis_text.splitlines():
+                    self.append_text(line)
 
         except Exception as e:
             logging.error(f"Error during analysis: {e}")
             messagebox.showerror("Error", f"An error occurred during analysis:\n{e}")
 
     def start_process(self):
+        mode = self.conversion_mode.get()
         input_path = self.input_var.get().strip()
+
         if not input_path:
-            messagebox.showerror("Error", "Please select an input PDF file.")
-            return
-        pdf_path = Path(input_path)
-        if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf":
-            messagebox.showerror("Error", f"Input file not found or not a PDF: {pdf_path}")
+            messagebox.showerror("Error", "Please select an input file.")
             return
 
-        output_path = self.output_var.get().strip()
-        if not output_path:
-            output_path = str(pdf_path.with_suffix(".cbz"))
-        cbz_path = Path(output_path)
+        file_path = Path(input_path)
+        if not file_path.is_file():
+            messagebox.showerror("Error", f"Input file not found: {file_path}")
+            return
+
+        # Validate file extension based on mode
+        if mode == "pdf_to_cbz":
+            if file_path.suffix.lower() != ".pdf":
+                messagebox.showerror("Error", f"Input file is not a PDF: {file_path}")
+                return
+            output_path = self.output_var.get().strip()
+            if not output_path:
+                output_path = str(file_path.with_suffix(".cbz"))
+            out_path = Path(output_path)
+        else:  # cbz_to_pdf
+            if file_path.suffix.lower() not in ('.cbz', '.cbr', '.cb7', '.cbt'):
+                messagebox.showerror("Error", f"Input file is not a comic book archive: {file_path}")
+                return
+            if not CBZ_TO_PDF_AVAILABLE:
+                messagebox.showerror("Error", "CBZ to PDF conversion is not available. Missing cbz_to_pdf module.")
+                return
+            output_path = self.output_var.get().strip()
+            if not output_path:
+                output_path = str(file_path.with_suffix(".pdf"))
+            out_path = Path(output_path)
 
         try:
             dpi_val = int(self.dpi_var.get()) if self.dpi_var.get().strip() else None
@@ -1296,71 +1696,110 @@ class PDF2CBZGui:
         def run_task():
             try:
                 setup_logging(logfile_path, debug=debug_mode)
-                conv = Converter(
-                    input_pdf=pdf_path,
-                    output_cbz=cbz_path,
-                    dpi=dpi_val,
-                    fmt=fmt_val,
-                    quality=quality_val,
-                    threads=threads_val,
-                    poppler_path=poppler_path,
-                )
-                if analyse_only:
-                    # Analysis only (same as compute_analysis, but collects results)
-                    analysis_text = conv.analyse()
-                    self.append_text("=== DPI Analysis ===")
-                    for line in analysis_text.splitlines():
-                        self.append_text(line)
 
-                    # File size & projections
-                    file_size = pdf_path.stat().st_size
-                    readable_file_size = format_size(file_size)
-                    self.append_text(f"\nActual PDF file size: {readable_file_size}")
+                if mode == "pdf_to_cbz":
+                    # PDF to CBZ conversion
+                    conv = Converter(
+                        input_pdf=file_path,
+                        output_cbz=out_path,
+                        dpi=dpi_val,
+                        fmt=fmt_val,
+                        quality=quality_val,
+                        threads=threads_val,
+                        poppler_path=poppler_path,
+                    )
+                    if analyse_only:
+                        # Analysis only
+                        analysis_text = conv.analyse()
+                        self.append_text("=== PDF → CBZ Analysis ===")
+                        for line in analysis_text.splitlines():
+                            self.append_text(line)
 
-                    recommended_dpi = conv.calculate_clarity_dpi()
-                    self.append_text(f"Recommended DPI based on first page: {recommended_dpi}")
+                        file_size = file_path.stat().st_size
+                        readable_file_size = format_size(file_size)
+                        self.append_text(f"\nActual PDF file size: {readable_file_size}")
 
-                    reader = PdfReader(str(pdf_path))
-                    total_pages = len(reader.pages)
-                    self.append_text(f"Total pages: {total_pages}")
+                        recommended_dpi = conv.calculate_clarity_dpi()
+                        self.append_text(f"Recommended DPI based on first page: {recommended_dpi}")
 
-                    try:
-                        img = self._render_page_pil(str(pdf_path), 1, recommended_dpi)
-                        buf = io.BytesIO()
-                        save_fmt = fmt_val.upper()
-                        save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
-                        img.save(buf, format=save_fmt, **save_kwargs)
-                        per_page_bytes = len(buf.getvalue())
-                        readable_per_page = format_size(per_page_bytes)
-                        projected_total = per_page_bytes * total_pages
-                        readable_projected = format_size(projected_total)
+                        reader = PdfReader(str(file_path))
+                        total_pages = len(reader.pages)
+                        self.append_text(f"Total pages: {total_pages}")
 
-                        self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
-                        self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
-                    except Exception as e:
-                        logging.error(f"Error during size projection: {e}")
-                        self.append_text(f"\nError estimating output size: {e}")
+                        try:
+                            img = self._render_page_pil(str(file_path), 1, recommended_dpi)
+                            buf = io.BytesIO()
+                            save_fmt = fmt_val.upper()
+                            save_kwargs = {"quality": quality_val} if save_fmt == "JPEG" else {}
+                            img.save(buf, format=save_fmt, **save_kwargs)
+                            per_page_bytes = len(buf.getvalue())
+                            readable_per_page = format_size(per_page_bytes)
+                            projected_total = per_page_bytes * total_pages
+                            readable_projected = format_size(projected_total)
 
-                    messagebox.showinfo("Analysis Complete", "Analysis and size projection complete. See results below.")
-                else:
-                    reader = PdfReader(str(pdf_path))
-                    total_pages = len(reader.pages)
-                    self.progress["maximum"] = total_pages
+                            self.append_text(f"\nEstimated size for one page at {recommended_dpi} DPI: {readable_per_page}")
+                            self.append_text(f"Projected total CBZ size: {readable_projected} ({total_pages} pages at {readable_per_page} each)")
+                        except Exception as e:
+                            logging.error(f"Error during size projection: {e}")
+                            self.append_text(f"\nError estimating output size: {e}")
 
-                    def progress_cb(completed, total):
-                        self.progress["value"] = completed
-                        self.root.update_idletasks()
+                        messagebox.showinfo("Analysis Complete", "Analysis and size projection complete. See results below.")
+                    else:
+                        reader = PdfReader(str(file_path))
+                        total_pages = len(reader.pages)
+                        self.progress["maximum"] = total_pages
 
-                    conv.convert(progress_callback=progress_cb)
-                    messagebox.showinfo("Conversion Complete", f"Created CBZ:\n{cbz_path}")
+                        def progress_cb(completed, total):
+                            self.progress["value"] = completed
+                            self.root.update_idletasks()
+
+                        conv.convert(progress_callback=progress_cb)
+                        result_size = format_size(out_path.stat().st_size)
+                        if messagebox.askyesno("Conversion Complete",
+                                               f"Created CBZ:\n{out_path}\n\nSize: {result_size}\n\nOpen the file?"):
+                            self._open_file(out_path)
+
+                else:  # cbz_to_pdf
+                    # CBZ to PDF conversion
+                    cbz_conv = CBZConverter(
+                        input_path=file_path,
+                        output_pdf=out_path,
+                        quality=quality_val,
+                        use_img2pdf=IMG2PDF_AVAILABLE,
+                        threads=threads_val,
+                    )
+
+                    if analyse_only:
+                        # Analysis only
+                        analysis_text = cbz_conv.analyse()
+                        self.append_text("=== CBZ → PDF Analysis ===")
+                        for line in analysis_text.splitlines():
+                            self.append_text(line)
+                        messagebox.showinfo("Analysis Complete", "Analysis complete. See results below.")
+                    else:
+                        # Get number of images for progress
+                        images = cbz_conv._get_archive_images()
+                        total_images = len(images)
+                        self.progress["maximum"] = total_images
+
+                        def progress_cb(completed, total):
+                            self.progress["value"] = completed
+                            self.root.update_idletasks()
+
+                        cbz_conv.convert(progress_callback=progress_cb)
+
+                        # Show result with file size and offer to open
+                        result_size = format_size(out_path.stat().st_size)
+                        if messagebox.askyesno("Conversion Complete",
+                                               f"Created PDF:\n{out_path}\n\nSize: {result_size}\n\nOpen the file?"):
+                            self._open_file(out_path)
+
             except Exception as e:
                 logging.error(f"Error during processing: {e}")
                 messagebox.showerror("Error", f"An error occurred:\n{e}")
             finally:
                 # Re-enable Run button
-                for widget in self.root.grid_slaves():
-                    if isinstance(widget, tk.Button) and widget["text"] == "Run":
-                        widget.config(state="normal")
+                self.run_button.config(state="normal")
 
         threading.Thread(target=run_task, daemon=True).start()
 
@@ -1628,6 +2067,441 @@ Voulez-vous appliquer ces paramètres à l'interface principale ?"""
                 f"Erreur lors de l'application des paramètres: {e}",
                 parent=self.preview_window if hasattr(self, 'preview_window') and self.preview_window.winfo_exists() else self.root
             )
+
+    def _open_cbz_preview_window(self):
+        """Opens a preview window for CBZ/CBR/CB7 files - similar to PDF preview."""
+        input_path = self.input_var.get().strip()
+        if not input_path or not Path(input_path).is_file():
+            messagebox.showerror("Error", "Please select a valid comic book archive file first.")
+            return
+
+        file_path = Path(input_path)
+        if file_path.suffix.lower() not in ('.cbz', '.cbr', '.cb7', '.cbt'):
+            messagebox.showerror("Error", f"Not a comic book archive: {file_path.suffix}")
+            return
+
+        # Try to load the archive
+        try:
+            if not CBZ_TO_PDF_AVAILABLE:
+                messagebox.showerror("Error", "CBZ to PDF module not available.")
+                return
+
+            # Create converter just to extract images
+            self._cbz_preview_converter = CBZConverter(
+                input_path=file_path,
+                output_pdf=Path(""),  # not used
+                quality=85,
+                use_img2pdf=False,
+                threads=1,
+            )
+            # Get images from archive
+            self._cbz_preview_images = self._cbz_preview_converter._get_archive_images()
+            if not self._cbz_preview_images:
+                messagebox.showerror("Error", "No images found in archive.")
+                return
+            total_pages = len(self._cbz_preview_images)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not read archive: {e}")
+            return
+
+        # Initialize full resolution image storage
+        self._cbz_full_res_original = None
+        self._cbz_full_res_converted = None
+
+        # Create preview window
+        self.cbz_preview_window = tk.Toplevel(self.root)
+        self.cbz_preview_window.title(f"CBZ → PDF Preview: {file_path.name}")
+        self.cbz_preview_window.geometry("1000x700")
+
+        # Bind close event
+        self.cbz_preview_window.protocol("WM_DELETE_WINDOW", self._on_cbz_preview_close)
+
+        # --- Controls Frame ---
+        controls_frame = tk.Frame(self.cbz_preview_window, padx=10, pady=10)
+        controls_frame.pack(fill=tk.X)
+
+        # Page Selection
+        tk.Label(controls_frame, text="Page:").pack(side=tk.LEFT, padx=(0, 5))
+        self._cbz_preview_page_var = tk.StringVar(value="1")
+        page_spinbox = tk.Spinbox(
+            controls_frame, from_=1, to=total_pages,
+            textvariable=self._cbz_preview_page_var, width=5,
+            command=self._update_cbz_preview_images
+        )
+        page_spinbox.pack(side=tk.LEFT, padx=5)
+        page_spinbox.bind('<Return>', lambda e: self._update_cbz_preview_images())
+
+        # Quality slider
+        tk.Label(controls_frame, text="Quality:").pack(side=tk.LEFT, padx=(10, 5))
+        self._cbz_preview_quality_var = tk.IntVar(value=int(self.quality_var.get() or 85))
+        quality_scale = tk.Scale(
+            controls_frame, from_=10, to=100, orient=tk.HORIZONTAL,
+            variable=self._cbz_preview_quality_var, length=100,
+            command=lambda x: self.cbz_preview_window.after_idle(self._update_cbz_preview_images)
+        )
+        quality_scale.pack(side=tk.LEFT, padx=5)
+
+        # Use img2pdf checkbox (lossless mode)
+        self._cbz_use_img2pdf_var = tk.BooleanVar(value=IMG2PDF_AVAILABLE)
+        img2pdf_check = tk.Checkbutton(
+            controls_frame, text="Lossless (img2pdf)",
+            variable=self._cbz_use_img2pdf_var,
+            command=self._update_cbz_preview_images,
+            state="normal" if IMG2PDF_AVAILABLE else "disabled"
+        )
+        img2pdf_check.pack(side=tk.LEFT, padx=10)
+
+        # Update Button
+        tk.Button(
+            controls_frame, text="Update Preview",
+            command=self._update_cbz_preview_images, bg="lightblue"
+        ).pack(side=tk.LEFT, padx=10)
+
+        # Apply Settings Button
+        tk.Button(
+            controls_frame, text="Apply to Main",
+            command=self._apply_cbz_preview_settings, bg="lightgreen"
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Zoom controls
+        self._cbz_zoom_enabled_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            controls_frame, text="Zoom", variable=self._cbz_zoom_enabled_var
+        ).pack(side=tk.LEFT, padx=10)
+
+        tk.Label(controls_frame, text="Mode:").pack(side=tk.LEFT, padx=(5, 5))
+        self._cbz_zoom_mode_var = tk.StringVar(value="Normal")
+        zoom_menu = tk.OptionMenu(controls_frame, self._cbz_zoom_mode_var,
+                                  "Normal", "Puissant", "Ultra",
+                                  command=lambda x: self._update_cbz_zoom_display())
+        zoom_menu.pack(side=tk.LEFT, padx=5)
+
+        # --- Image Frame ---
+        self._cbz_image_frame = tk.Frame(self.cbz_preview_window)
+        self._cbz_image_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))
+        self._cbz_image_frame.grid_rowconfigure(2, weight=3)
+        self._cbz_image_frame.grid_rowconfigure(0, weight=0, minsize=140)
+        self._cbz_image_frame.grid_columnconfigure(0, weight=1)
+        self._cbz_image_frame.grid_columnconfigure(1, weight=1)
+
+        # --- Fixed Zoom Areas ---
+        self._cbz_zoom_frame_orig = tk.Frame(self._cbz_image_frame, width=280, height=140, bd=2, relief=tk.RIDGE, bg="white")
+        self._cbz_zoom_frame_orig.grid_propagate(False)
+        self._cbz_zoom_frame_orig.grid(row=0, column=0, pady=2, padx=5)
+
+        self._cbz_zoom_frame_conv = tk.Frame(self._cbz_image_frame, width=280, height=140, bd=2, relief=tk.RIDGE, bg="white")
+        self._cbz_zoom_frame_conv.grid_propagate(False)
+        self._cbz_zoom_frame_conv.grid(row=0, column=1, pady=2, padx=5)
+
+        self._cbz_zoom_lens_orig = tk.Label(self._cbz_zoom_frame_orig, bg="white", text="Original\nZoom\n(Normal)", anchor="center", font=("Arial", 8))
+        self._cbz_zoom_lens_orig.pack(fill=tk.BOTH, expand=True)
+
+        self._cbz_zoom_lens_conv = tk.Label(self._cbz_zoom_frame_conv, bg="white", text="Preview\nZoom\n(Normal)", anchor="center", font=("Arial", 8))
+        self._cbz_zoom_lens_conv.pack(fill=tk.BOTH, expand=True)
+
+        self._cbz_zoom_lens_orig_image = None
+        self._cbz_zoom_lens_conv_image = None
+
+        # Labels
+        tk.Label(self._cbz_image_frame, text="Original (from archive)", font=("Arial", 10, "bold")).grid(row=1, column=0, pady=(3, 1), sticky="s")
+        tk.Label(self._cbz_image_frame, text="Preview (PDF quality)", font=("Arial", 10, "bold")).grid(row=1, column=1, pady=(3, 1), sticky="s")
+
+        # Image labels
+        self._cbz_original_label = tk.Label(self._cbz_image_frame, bg="gray90", text="Loading...")
+        self._cbz_original_label.grid(row=2, column=0, sticky="nsew", padx=5, pady=(0, 5))
+
+        self._cbz_converted_label = tk.Label(self._cbz_image_frame, bg="gray90", text="Loading...")
+        self._cbz_converted_label.grid(row=2, column=1, sticky="nsew", padx=5, pady=(0, 5))
+
+        # Bind zoom events
+        self._cbz_converted_label.bind("<Motion>", self._update_cbz_zoom_lens)
+        self._cbz_converted_label.bind("<Enter>", self._show_cbz_zoom_lens)
+        self._cbz_converted_label.bind("<Leave>", self._hide_cbz_zoom_lens)
+        self._cbz_image_frame.bind("<Leave>", self._hide_cbz_zoom_lens)
+
+        # Bind resize
+        self.cbz_preview_window.bind("<Configure>", self._on_cbz_preview_resize)
+
+        # Keyboard shortcuts
+        self.cbz_preview_window.bind("<Key-1>", lambda e: self._set_cbz_zoom_mode("Normal"))
+        self.cbz_preview_window.bind("<Key-2>", lambda e: self._set_cbz_zoom_mode("Puissant"))
+        self.cbz_preview_window.bind("<Key-3>", lambda e: self._set_cbz_zoom_mode("Ultra"))
+        self.cbz_preview_window.bind("<Left>", lambda e: self._cbz_page_prev())
+        self.cbz_preview_window.bind("<Right>", lambda e: self._cbz_page_next())
+        self.cbz_preview_window.focus_set()
+
+        # --- Info Frame ---
+        info_frame = tk.Frame(self.cbz_preview_window)
+        info_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+
+        self._cbz_info_label = tk.Label(info_frame, text="Loading...", bd=1, relief=tk.SUNKEN, anchor=tk.W, height=2)
+        self._cbz_info_label.pack(fill=tk.X, padx=5, pady=2)
+
+        # Store state
+        self._cbz_total_pages = total_pages
+        self._cbz_original_img_tk = None
+        self._cbz_converted_img_tk = None
+
+        # Initial display
+        self.cbz_preview_window.after(100, self._update_cbz_preview_images)
+
+    def _cbz_page_prev(self):
+        """Go to previous page."""
+        try:
+            current = int(self._cbz_preview_page_var.get())
+            if current > 1:
+                self._cbz_preview_page_var.set(str(current - 1))
+                self._update_cbz_preview_images()
+        except ValueError:
+            pass
+
+    def _cbz_page_next(self):
+        """Go to next page."""
+        try:
+            current = int(self._cbz_preview_page_var.get())
+            if current < self._cbz_total_pages:
+                self._cbz_preview_page_var.set(str(current + 1))
+                self._update_cbz_preview_images()
+        except ValueError:
+            pass
+
+    def _on_cbz_preview_resize(self, event):
+        """Handle window resize."""
+        if event.widget == self.cbz_preview_window:
+            if hasattr(self, '_cbz_resize_after_id'):
+                self.cbz_preview_window.after_cancel(self._cbz_resize_after_id)
+            self._cbz_resize_after_id = self.cbz_preview_window.after(300, self._refresh_cbz_display)
+
+    def _refresh_cbz_display(self):
+        """Refresh display after resize."""
+        if hasattr(self, '_cbz_full_res_original') and self._cbz_full_res_original:
+            self._display_cbz_images()
+
+    def _update_cbz_preview_images(self):
+        """Update the preview images based on current settings."""
+        if not hasattr(self, '_cbz_preview_images') or not self._cbz_preview_images:
+            return
+
+        try:
+            page_num = int(self._cbz_preview_page_var.get())
+            if page_num < 1 or page_num > len(self._cbz_preview_images):
+                return
+
+            quality = self._cbz_preview_quality_var.get()
+            use_lossless = self._cbz_use_img2pdf_var.get()
+
+            # Get original image data
+            filename, image_data = self._cbz_preview_images[page_num - 1]
+
+            # Load original image
+            original_img = Image.open(io.BytesIO(image_data))
+            self._cbz_full_res_original = original_img.copy()
+
+            # Create preview image based on settings
+            if use_lossless:
+                # Lossless mode - image stays the same
+                self._cbz_full_res_converted = original_img.copy()
+            else:
+                # Apply quality compression (simulate JPEG re-encoding)
+                img_to_convert = original_img.copy()
+
+                # Convert to RGB if needed
+                if img_to_convert.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', img_to_convert.size, (255, 255, 255))
+                    if img_to_convert.mode == 'P':
+                        img_to_convert = img_to_convert.convert('RGBA')
+                    if img_to_convert.mode in ('RGBA', 'LA'):
+                        background.paste(img_to_convert, mask=img_to_convert.split()[-1])
+                        img_to_convert = background
+                elif img_to_convert.mode != 'RGB':
+                    img_to_convert = img_to_convert.convert('RGB')
+
+                # Re-encode with quality setting
+                buf = io.BytesIO()
+                img_to_convert.save(buf, format='JPEG', quality=quality)
+                buf.seek(0)
+                self._cbz_full_res_converted = Image.open(buf)
+                self._cbz_full_res_converted.load()  # Force load
+
+            # Display images
+            self._display_cbz_images()
+
+            # Update info
+            orig_size = len(image_data) / 1024
+            if use_lossless:
+                conv_size = orig_size
+                mode_str = "Lossless (img2pdf)"
+            else:
+                buf = io.BytesIO()
+                self._cbz_full_res_converted.save(buf, format='JPEG', quality=quality)
+                conv_size = len(buf.getvalue()) / 1024
+                mode_str = f"JPEG Quality {quality}"
+
+            self._cbz_info_label.config(
+                text=f"Page {page_num}/{self._cbz_total_pages} | {filename} | "
+                     f"Original: {self._cbz_full_res_original.width}×{self._cbz_full_res_original.height}px, {orig_size:.1f} KB | "
+                     f"Preview ({mode_str}): {conv_size:.1f} KB"
+            )
+
+        except Exception as e:
+            logging.error(f"Error updating CBZ preview: {e}")
+            self._cbz_info_label.config(text=f"Error: {e}")
+
+    def _display_cbz_images(self):
+        """Display the original and converted images scaled to fit."""
+        if not self._cbz_full_res_original or not self._cbz_full_res_converted:
+            return
+
+        # Get available space
+        orig_w = self._cbz_original_label.winfo_width()
+        orig_h = self._cbz_original_label.winfo_height()
+        conv_w = self._cbz_converted_label.winfo_width()
+        conv_h = self._cbz_converted_label.winfo_height()
+
+        if orig_w < 10 or orig_h < 10:
+            self.cbz_preview_window.after(100, self._display_cbz_images)
+            return
+
+        # Scale original image
+        orig_img = self._cbz_full_res_original
+        scale_orig = min(orig_w / orig_img.width, orig_h / orig_img.height)
+        new_orig_w = int(orig_img.width * scale_orig)
+        new_orig_h = int(orig_img.height * scale_orig)
+        scaled_orig = orig_img.resize((new_orig_w, new_orig_h), Image.Resampling.LANCZOS)
+
+        # Scale converted image
+        conv_img = self._cbz_full_res_converted
+        scale_conv = min(conv_w / conv_img.width, conv_h / conv_img.height)
+        new_conv_w = int(conv_img.width * scale_conv)
+        new_conv_h = int(conv_img.height * scale_conv)
+        scaled_conv = conv_img.resize((new_conv_w, new_conv_h), Image.Resampling.LANCZOS)
+
+        # Convert to PhotoImage
+        self._cbz_original_img_tk = ImageTk.PhotoImage(scaled_orig)
+        self._cbz_converted_img_tk = ImageTk.PhotoImage(scaled_conv)
+
+        # Update labels
+        self._cbz_original_label.config(image=self._cbz_original_img_tk, text="")
+        self._cbz_converted_label.config(image=self._cbz_converted_img_tk, text="")
+
+    def _set_cbz_zoom_mode(self, mode: str):
+        """Set zoom mode."""
+        self._cbz_zoom_mode_var.set(mode)
+        self._update_cbz_zoom_display()
+
+    def _update_cbz_zoom_display(self):
+        """Update zoom area display when mode changes."""
+        mode = self._cbz_zoom_mode_var.get()
+        self._cbz_zoom_lens_orig.config(image="", text=f"Original\nZoom\n({mode})")
+        self._cbz_zoom_lens_conv.config(image="", text=f"Preview\nZoom\n({mode})")
+
+    def _show_cbz_zoom_lens(self, event):
+        """Show zoom lens on mouse enter."""
+        pass
+
+    def _hide_cbz_zoom_lens(self, event):
+        """Hide zoom lens on mouse leave."""
+        mode = self._cbz_zoom_mode_var.get()
+        self._cbz_zoom_lens_orig.config(image="", text=f"Original\nZoom\n({mode})")
+        self._cbz_zoom_lens_conv.config(image="", text=f"Preview\nZoom\n({mode})")
+
+    def _update_cbz_zoom_lens(self, event):
+        """Update zoom lens based on mouse position."""
+        if not self._cbz_zoom_enabled_var.get():
+            return
+        if not hasattr(self, '_cbz_full_res_original') or not self._cbz_full_res_original:
+            return
+        if not hasattr(self, '_cbz_full_res_converted') or not self._cbz_full_res_converted:
+            return
+
+        try:
+            # Get zoom mode settings
+            zoom_mode = self._cbz_zoom_mode_var.get()
+            if zoom_mode == "Normal":
+                crop_size = 140
+            elif zoom_mode == "Puissant":
+                crop_size = 70
+            else:  # Ultra
+                crop_size = 35
+
+            # Get mouse position relative to converted label
+            widget = self._cbz_converted_label
+            x, y = event.x, event.y
+            w, h = widget.winfo_width(), widget.winfo_height()
+
+            if w < 10 or h < 10:
+                return
+
+            # Calculate relative position (0-1)
+            rel_x = max(0, min(1, x / w))
+            rel_y = max(0, min(1, y / h))
+
+            # Get zoom area size
+            zoom_w = self._cbz_zoom_frame_orig.winfo_width()
+            zoom_h = self._cbz_zoom_frame_orig.winfo_height()
+
+            # Crop from original
+            orig = self._cbz_full_res_original
+            orig_cx = int(rel_x * orig.width)
+            orig_cy = int(rel_y * orig.height)
+            half = crop_size // 2
+
+            left = max(0, orig_cx - half)
+            top = max(0, orig_cy - half)
+            right = min(orig.width, left + crop_size)
+            bottom = min(orig.height, top + crop_size)
+
+            if right - left < crop_size:
+                left = max(0, right - crop_size)
+            if bottom - top < crop_size:
+                top = max(0, bottom - crop_size)
+
+            cropped_orig = orig.crop((left, top, right, bottom))
+            zoomed_orig = cropped_orig.resize((zoom_w, zoom_h), Image.Resampling.NEAREST)
+
+            # Crop from converted
+            conv = self._cbz_full_res_converted
+            conv_cx = int(rel_x * conv.width)
+            conv_cy = int(rel_y * conv.height)
+
+            left_c = max(0, conv_cx - half)
+            top_c = max(0, conv_cy - half)
+            right_c = min(conv.width, left_c + crop_size)
+            bottom_c = min(conv.height, top_c + crop_size)
+
+            if right_c - left_c < crop_size:
+                left_c = max(0, right_c - crop_size)
+            if bottom_c - top_c < crop_size:
+                top_c = max(0, bottom_c - crop_size)
+
+            cropped_conv = conv.crop((left_c, top_c, right_c, bottom_c))
+            zoomed_conv = cropped_conv.resize((zoom_w, zoom_h), Image.Resampling.NEAREST)
+
+            # Update zoom labels
+            self._cbz_zoom_lens_orig_image = ImageTk.PhotoImage(zoomed_orig)
+            self._cbz_zoom_lens_conv_image = ImageTk.PhotoImage(zoomed_conv)
+
+            self._cbz_zoom_lens_orig.config(image=self._cbz_zoom_lens_orig_image, text="")
+            self._cbz_zoom_lens_conv.config(image=self._cbz_zoom_lens_conv_image, text="")
+
+        except Exception as e:
+            logging.error(f"Zoom error: {e}")
+
+    def _apply_cbz_preview_settings(self):
+        """Apply preview settings to main window."""
+        try:
+            quality = self._cbz_preview_quality_var.get()
+            self.quality_var.set(str(quality))
+            messagebox.showinfo("Settings Applied",
+                               f"Quality: {quality}\n\nSettings applied to main window.",
+                               parent=self.cbz_preview_window)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not apply settings: {e}",
+                               parent=self.cbz_preview_window)
+
+    def _on_cbz_preview_close(self):
+        """Handle preview window close."""
+        self.cbz_preview_window.destroy()
 
     def _fix_zoom_area_size(self):
         """Force zoom areas to maintain their fixed size."""

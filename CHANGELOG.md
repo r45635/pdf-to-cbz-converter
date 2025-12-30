@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0] - 2025-12-30
+
+### Added
+- **Bidirectional Conversion (Desktop App)**: Convert CBZ/CBR/CB7/CBT back to PDF
+  - New `cbz_to_pdf.py` CLI tool with full feature parity
+  - GUI mode selector for PDF→CBZ or CBZ→PDF conversion
+  - Support for CBZ, CBR (with rarfile), CB7 (with py7zr), and CBT formats
+  - Lossless quality preservation with img2pdf library
+  - Archive analysis mode with page count and size estimates
+
+### Changed
+- Desktop app version bumped to 2.4.0
+- GUI title updated to "PDF ↔ CBZ Converter"
+- Default theme changed to Auto (system detection)
+
+### Removed
+- Cleaned up obsolete documentation files (release notes, build scripts, test files)
+- Removed ~13MB of test assets from repository
+
 ## [2.3.0] - 2025-12-29
 
 ### Added

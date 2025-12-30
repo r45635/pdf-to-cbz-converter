@@ -4,6 +4,13 @@ PyPDF2
 tqdm
 PyMuPDF
 
+# CBZ to PDF conversion (recommended for lossless quality)
+img2pdf
+
+# Optional: Additional comic book format support
+# rarfile      # For CBR (RAR) files - requires unrar binary
+# py7zr        # For CB7 (7-Zip) files
+
 # Note: The GUI requires tkinter which is a system package:
 #   macOS: brew install python-tk@3.x
 #   Ubuntu/Debian: sudo apt-get install python3-tk

@@ -1,6 +1,6 @@
 # PDF to CBZ Converter
 
-Convert PDF files to CBZ format for comic book readers. Choose between a modern web application or a cross-platform desktop application.
+Bidirectional converter between PDF and comic book archive formats (CBZ, CBR, CB7, CBT). Choose between a modern web application or a cross-platform desktop application.
 
 **Live Demo:** [https://pdf-to-cbz-converter.vercel.app](https://pdf-to-cbz-converter.vercel.app)
 
@@ -19,7 +19,7 @@ Convert PDF files to CBZ format for comic book readers. Choose between a modern 
 | Project | Type | Best For |
 |---------|------|----------|
 | [pdf-to-cbz-nextjs](./pdf-to-cbz-nextjs/) | Web App | Quick conversions, live preview, batch processing |
-| [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, offline use |
+| [pdf-to-cbz-python](./pdf-to-cbz-python/) | Desktop App | Large files, offline use, CBZ→PDF conversion |
 | [Docker](https://hub.docker.com/r/r45635/pdf-to-cbz) | Container | Self-hosted, no size limits |
 
 ---
@@ -78,6 +78,8 @@ docker run -p 3000:3000 r45635/pdf-to-cbz
 Cross-platform desktop converter with GUI and CLI modes.
 
 **Features:**
+- **Bidirectional conversion**: PDF→CBZ and CBZ→PDF
+- Supports CBZ, CBR, CB7, and CBT formats
 - Full-featured GUI with real-time preview
 - CLI for scripting and automation
 - Configuration management (save/load settings)
@@ -90,10 +92,13 @@ Cross-platform desktop converter with GUI and CLI modes.
 cd pdf-to-cbz-python
 pip install -r requirements.txt
 
-# CLI mode
+# PDF to CBZ (CLI)
 python pdf_to_cbz.py document.pdf
 
-# GUI mode (requires tkinter)
+# CBZ to PDF (CLI)
+python cbz_to_pdf.py comic.cbz
+
+# GUI mode (both directions)
 python pdf_to_cbz_gui.py
 ```
 
