@@ -11,11 +11,25 @@ All notable changes to this project will be documented in this file.
   - Support for CBZ, CBR (with rarfile), CB7 (with py7zr), and CBT formats
   - Lossless quality preservation with img2pdf library
   - Archive analysis mode with page count and size estimates
+- **Bidirectional Conversion (Web App)**: Convert CBZ back to PDF in Next.js app
+  - Single file and batch conversion modes for CBZ→PDF
+  - Direct extraction option (no recompression, preserves original quality)
+  - Mode toggle in UI header for switching between PDF→CBZ and CBZ→PDF
+  - New API endpoints:
+    - `POST /api/analyze-cbz` - Analyze CBZ file structure
+    - `POST /api/convert-cbz` - Convert CBZ to PDF with quality settings
+    - `POST /api/extract-cbz` - Direct CBZ to PDF (SSE streaming)
+    - `POST /api/batch-convert-cbz` - Batch CBZ to PDF conversion
 
 ### Changed
 - Desktop app version bumped to 2.4.0
 - GUI title updated to "PDF ↔ CBZ Converter"
 - Default theme changed to Auto (system detection)
+- Web app now supports both conversion directions
+
+### Fixed
+- Fixed preview loading error when selecting CBZ file in web app
+- Fixed batch validation to accept .cbz files for CBZ→PDF conversion
 
 ### Removed
 - Cleaned up obsolete documentation files (release notes, build scripts, test files)
