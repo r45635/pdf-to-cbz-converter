@@ -213,17 +213,47 @@ export default function Home() {
     }
   }, []);
 
-  // Auto-update preview when parameters change (with debounce) - PDF mode only
+  // Load CBZ preview
+  const loadCbzPreview = useCallback(async (cbzFile: File, page: number) => {
+    setIsPreviewLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', cbzFile);
+      formData.append('page', page.toString());
+
+      const response = await fetch('/api/preview-cbz', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(blob);
+        });
+      }
+    } catch (err) {
+      console.error('CBZ preview error:', err);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  }, []);
+
+  // Auto-update preview when parameters change (with debounce)
   useEffect(() => {
-    // Skip preview loading in CBZ mode - preview API only supports PDF
-    if (!file || !analysis || mode === 'cbz-to-pdf') return;
+    if (!file || !analysis) return;
 
     if (previewTimeoutRef.current) {
       clearTimeout(previewTimeoutRef.current);
     }
 
     previewTimeoutRef.current = setTimeout(() => {
-      loadPreview(file, previewPage, effectiveDpi, format, quality);
+      if (mode === 'pdf-to-cbz') {
+        loadPreview(file, previewPage, effectiveDpi, format, quality);
+      } else {
+        loadCbzPreview(file, previewPage);
+      }
     }, 300);
 
     return () => {
@@ -231,7 +261,7 @@ export default function Home() {
         clearTimeout(previewTimeoutRef.current);
       }
     };
-  }, [file, analysis, mode, effectiveDpi, format, quality, previewPage, loadPreview]);
+  }, [file, analysis, mode, effectiveDpi, format, quality, previewPage, loadPreview, loadCbzPreview]);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     // Detect mode from file extension
@@ -464,61 +494,154 @@ export default function Home() {
   }, [file]);
 
   // Original image info from direct extraction
-  const [originalImageInfo, setOriginalImageInfo] = useState<{ width: number; height: number; method: string } | null>(null);
+  const [originalImageInfo, setOriginalImageInfo] = useState<{ width: number; height: number; method: string; sizeKB: number } | null>(null);
+  const [convertedImageInfo, setConvertedImageInfo] = useState<{ sizeKB: number; width: number; height: number } | null>(null);
+  const [isCompareLoading, setIsCompareLoading] = useState(false);
+  const [cachedOriginalPage, setCachedOriginalPage] = useState<number | null>(null);
 
-  // Load comparison images (PDF mode only)
-  const loadComparisonImages = useCallback(async () => {
+  // Source image for client-side processing (same as original)
+  // nativeDpi = the DPI at which the source image was extracted (its "natural" resolution)
+  const [sourceImageData, setSourceImageData] = useState<{ img: HTMLImageElement; nativeDpi: number } | null>(null);
+
+  // Load source image (extract from PDF - only when page changes)
+  const loadSourceImage = useCallback(async () => {
+    if (!file || !analysis || mode === 'cbz-to-pdf' || !isPdfAnalysis(analysis)) return;
+
+    setIsCompareLoading(true);
+
+    // Load original via direct extraction - this is THE source for everything
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('page', previewPage.toString());
+
+    try {
+      const res = await fetch('/api/extract-preview', { method: 'POST', body: formData });
+
+      if (res.ok) {
+        const extractMethod = res.headers.get('X-Extraction-Method') || 'unknown';
+        const imgWidth = parseInt(res.headers.get('X-Image-Width') || '0');
+        const imgHeight = parseInt(res.headers.get('X-Image-Height') || '0');
+        const blob = await res.blob();
+
+        setOriginalImageInfo({
+          width: imgWidth,
+          height: imgHeight,
+          method: extractMethod,
+          sizeKB: Math.round(blob.size / 1024)
+        });
+
+        const url = URL.createObjectURL(blob);
+
+        // Set as original preview
+        setOriginalPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+
+        // Also load into Image element for canvas processing
+        const img = new Image();
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = reject;
+          img.src = url;
+        });
+
+        // Use nativeDpi from analysis as reference
+        setSourceImageData({ img, nativeDpi: analysis.nativeDpi });
+      }
+
+      setCachedOriginalPage(previewPage);
+    } catch (err) {
+      console.error('Failed to load source image:', err);
+    } finally {
+      setIsCompareLoading(false);
+    }
+  }, [file, analysis, mode, previewPage]);
+
+  // Apply conversion settings client-side (instant!)
+  const applyConversionSettings = useCallback(() => {
+    if (!sourceImageData) return;
+
+    const { img, nativeDpi } = sourceImageData;
+
+    // Calculate target size based on DPI ratio
+    const dpiRatio = effectiveDpi / nativeDpi;
+    const targetWidth = Math.round(img.width * dpiRatio);
+    const targetHeight = Math.round(img.height * dpiRatio);
+
+    // Create canvas at target size
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Draw scaled image
+    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+    // Convert to data URL with specified format and quality
+    const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const qualityValue = format === 'jpeg' ? quality / 100 : undefined;
+    console.log('[Compare] Applying settings:', { effectiveDpi, nativeDpi, dpiRatio, targetWidth, targetHeight, format, quality });
+    const dataUrl = canvas.toDataURL(mimeType, qualityValue);
+
+    // Calculate actual size from base64
+    const base64Length = dataUrl.length - dataUrl.indexOf(',') - 1;
+    const sizeBytes = base64Length * 0.75; // base64 to binary ratio
+    const sizeKB = Math.round(sizeBytes / 1024);
+    console.log('[Compare] Result size:', sizeKB, 'KB, dimensions:', targetWidth, 'x', targetHeight);
+
+    setConvertedImageInfo({
+      sizeKB,
+      width: targetWidth,
+      height: targetHeight
+    });
+
+    setConvertedPreviewUrl((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return dataUrl;
+    });
+  }, [sourceImageData, effectiveDpi, format, quality]);
+
+  // Load comparison images (for initial compare or page change)
+  const loadComparisonImages = useCallback(async (resetView = true) => {
     if (!file || !analysis || mode === 'cbz-to-pdf') return;
 
     setCompareMode(true);
-    setCompareZoom(1);
-    setComparePan({ x: 0, y: 0 });
-    setOriginalImageInfo(null);
-
-    // Load original via direct extraction
-    const originalFormData = new FormData();
-    originalFormData.append('file', file);
-    originalFormData.append('page', previewPage.toString());
-
-    // Load converted (current settings)
-    const convertedFormData = new FormData();
-    convertedFormData.append('file', file);
-    convertedFormData.append('page', previewPage.toString());
-    convertedFormData.append('dpi', effectiveDpi.toString());
-    convertedFormData.append('format', format);
-    convertedFormData.append('quality', quality.toString());
-
-    try {
-      const [originalRes, convertedRes] = await Promise.all([
-        fetch('/api/extract-preview', { method: 'POST', body: originalFormData }),
-        fetch('/api/preview', { method: 'POST', body: convertedFormData }),
-      ]);
-
-      if (originalRes.ok && convertedRes.ok) {
-        // Get extraction info from headers
-        const extractMethod = originalRes.headers.get('X-Extraction-Method') || 'unknown';
-        const imgWidth = parseInt(originalRes.headers.get('X-Image-Width') || '0');
-        const imgHeight = parseInt(originalRes.headers.get('X-Image-Height') || '0');
-        setOriginalImageInfo({ width: imgWidth, height: imgHeight, method: extractMethod });
-
-        const [originalBlob, convertedBlob] = await Promise.all([
-          originalRes.blob(),
-          convertedRes.blob(),
-        ]);
-
-        setOriginalPreviewUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return URL.createObjectURL(originalBlob);
-        });
-        setConvertedPreviewUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return URL.createObjectURL(convertedBlob);
-        });
-      }
-    } catch (err) {
-      console.error('Failed to load comparison images:', err);
+    if (resetView) {
+      setCompareZoom(1);
+      setComparePan({ x: 0, y: 0 });
     }
-  }, [file, analysis, mode, previewPage, effectiveDpi, format, quality]);
+
+    // Load source only if page changed
+    if (cachedOriginalPage !== previewPage) {
+      await loadSourceImage();
+    }
+  }, [file, analysis, mode, previewPage, cachedOriginalPage, loadSourceImage]);
+
+  // Track previous page for detecting page changes
+  const prevPageRef = useRef(previewPage);
+
+  // Reload source image only when page changes in compare mode
+  useEffect(() => {
+    if (compareMode && file && mode === 'pdf-to-cbz') {
+      if (prevPageRef.current !== previewPage) {
+        prevPageRef.current = previewPage;
+        setCompareZoom(1);
+        setComparePan({ x: 0, y: 0 });
+        loadSourceImage();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewPage]);
+
+  // Apply conversion settings instantly when they change (client-side processing)
+  useEffect(() => {
+    if (compareMode && sourceImageData) {
+      applyConversionSettings();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceImageData, effectiveDpi, format, quality]);
 
   // Direct extraction state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -650,7 +773,7 @@ export default function Home() {
   const handleCompareWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setCompareZoom((z) => Math.max(0.5, Math.min(5, z * delta)));
+    setCompareZoom((z) => Math.max(0.5, Math.min(10, z * delta)));
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -915,9 +1038,8 @@ export default function Home() {
                       type="number"
                       min="72"
                       max="600"
-                      value={dpi}
+                      value={dpi || effectiveDpi}
                       onChange={(e) => setDpi(e.target.value)}
-                      placeholder={`${effectiveDpi}`}
                       className="w-20 px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-center focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
@@ -1067,6 +1189,15 @@ export default function Home() {
                     </button>
                   </>
                 )}
+                {compareMode && (
+                  <>
+                    <span className="text-gray-600">|</span>
+                    <button onClick={() => setCompareZoom((z) => Math.max(0.5, z - 0.25))} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">-</button>
+                    <span className="text-sm text-gray-400 w-12 text-center">{Math.round(compareZoom * 100)}%</span>
+                    <button onClick={() => setCompareZoom((z) => Math.min(10, z + 0.25))} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">+</button>
+                    <button onClick={() => { setCompareZoom(1); setComparePan({ x: 0, y: 0 }); }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Reset</button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1122,108 +1253,64 @@ export default function Home() {
 
             {/* Comparison Mode */}
             {compareMode && (
-              <div className="space-y-3">
-                {/* Zoom controls */}
-                <div className="flex items-center justify-center gap-4 text-sm">
-                  <button
-                    onClick={() => setCompareZoom((z) => Math.max(0.5, z - 0.25))}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded"
-                  >
-                    -
-                  </button>
-                  <span className="text-gray-300 w-20 text-center">{Math.round(compareZoom * 100)}%</span>
-                  <button
-                    onClick={() => setCompareZoom((z) => Math.min(5, z + 0.25))}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => { setCompareZoom(1); setComparePan({ x: 0, y: 0 }); }}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
-                  >
-                    Reset
-                  </button>
-                </div>
-
+              <div className="space-y-2">
                 {/* Side by side comparison */}
                 <div className="grid grid-cols-2 gap-2">
                   {/* Original */}
-                  <div className="space-y-1">
-                    <div className="text-center text-xs font-medium text-green-400">
-                      Original {originalImageInfo ? `(${originalImageInfo.width}x${originalImageInfo.height}, ${originalImageInfo.method})` : ''}
-                    </div>
-                    <div
-                      className="aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative"
-                      onMouseDown={handleCompareMouseDown}
-                      onMouseMove={handleCompareMouseMove}
-                      onMouseUp={handleCompareMouseUp}
-                      onMouseLeave={handleCompareMouseUp}
-                      onWheel={handleCompareWheel}
-                    >
-                      {originalPreviewUrl ? (
-                        <img
-                          src={originalPreviewUrl}
-                          alt="Original"
-                          className="absolute select-none"
-                          style={{
-                            transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
-                            transformOrigin: 'center center',
-                            maxWidth: 'none',
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'contain',
-                          }}
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                      )}
+                  <div
+                    className={`aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative flex items-center justify-center ${isCompareLoading ? 'opacity-50' : ''}`}
+                    onMouseDown={handleCompareMouseDown}
+                    onMouseMove={handleCompareMouseMove}
+                    onMouseUp={handleCompareMouseUp}
+                    onMouseLeave={handleCompareMouseUp}
+                    onWheel={handleCompareWheel}
+                  >
+                    {originalPreviewUrl ? (
+                      <img
+                        src={originalPreviewUrl}
+                        alt="Original"
+                        className="max-w-full max-h-full object-contain select-none"
+                        style={{
+                          transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
+                        }}
+                        draggable={false}
+                      />
+                    ) : (
+                      <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+                    )}
+                    <div className="absolute bottom-1 left-1 bg-black/80 text-xs text-green-400 px-1.5 py-0.5 rounded">
+                      Original {originalImageInfo ? `${originalImageInfo.sizeKB}KB` : ''}
                     </div>
                   </div>
 
                   {/* Converted */}
-                  <div className="space-y-1">
-                    <div className="text-center text-xs font-medium text-blue-400">
-                      Converted (DPI {effectiveDpi}, {format.toUpperCase()} Q{quality}%)
-                    </div>
-                    <div
-                      className="aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative"
-                      onMouseDown={handleCompareMouseDown}
-                      onMouseMove={handleCompareMouseMove}
-                      onMouseUp={handleCompareMouseUp}
-                      onMouseLeave={handleCompareMouseUp}
-                      onWheel={handleCompareWheel}
-                    >
-                      {convertedPreviewUrl ? (
-                        <img
-                          src={convertedPreviewUrl}
-                          alt="Converted"
-                          className="absolute select-none"
-                          style={{
-                            transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
-                            transformOrigin: 'center center',
-                            maxWidth: 'none',
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'contain',
-                          }}
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                      )}
+                  <div
+                    className="aspect-[3/4] bg-gray-900 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing relative flex items-center justify-center"
+                    onMouseDown={handleCompareMouseDown}
+                    onMouseMove={handleCompareMouseMove}
+                    onMouseUp={handleCompareMouseUp}
+                    onMouseLeave={handleCompareMouseUp}
+                    onWheel={handleCompareWheel}
+                  >
+                    {convertedPreviewUrl ? (
+                      <img
+                        src={convertedPreviewUrl}
+                        alt="Converted"
+                        className="max-w-full max-h-full object-contain select-none"
+                        style={{
+                          transform: `translate(${comparePan.x}px, ${comparePan.y}px) scale(${compareZoom})`,
+                        }}
+                        draggable={false}
+                      />
+                    ) : (
+                      <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                    )}
+                    <div className="absolute bottom-1 right-1 bg-black/80 text-xs text-blue-400 px-1.5 py-0.5 rounded">
+                      {format.toUpperCase()} Q{quality}% {convertedImageInfo ? `${convertedImageInfo.sizeKB}KB` : ''}
                     </div>
                   </div>
                 </div>
 
-                <div className="text-center text-xs text-gray-500">
-                  Scroll to zoom, drag to pan (synchronized)
-                </div>
               </div>
             )}
           </div>
