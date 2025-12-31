@@ -33,6 +33,7 @@ Modern web-based converter deployed on Vercel with **bidirectional conversion**.
 - **Single File Mode:** Live preview, adjustable DPI/quality, side-by-side comparison
 - **Batch Mode:** Convert up to 50 files simultaneously with progress tracking
 - **Direct Extraction:** Preserve original image quality (no recompression)
+- **Multi-language:** English, Français, Español, 中文
 - Auto-optimization for optimal file size
 - Real-time streaming progress
 - Download results individually or as ZIP
@@ -72,12 +73,14 @@ BATCH_DEFAULT_EXPIRE_MINUTES=60 # Results expiration (default: 60)
 
 > **Note:** The [live demo](https://pdf-to-cbz-converter.vercel.app) has a 4.5MB file size limit (Vercel free tier). For larger files or batch processing, run locally or use Docker.
 
-**Docker:**
+**Docker:** (optimized image ~534MB)
 ```bash
-docker pull r45635/pdf-to-cbz
-docker run -p 3000:3000 r45635/pdf-to-cbz
+docker pull r45635/pdf-to-cbz:latest
+docker run -p 3000:3000 r45635/pdf-to-cbz:latest
 # Open http://localhost:3000
 ```
+
+Available tags: `latest`, `v2.2.2`
 
 ---
 
