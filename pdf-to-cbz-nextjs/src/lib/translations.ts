@@ -68,6 +68,24 @@ export const translations = {
     footer: 'Open source project',
     madeWith: 'Made with',
     viewOnGithub: 'View on GitHub',
+
+    // Batch page
+    batchConversion: 'Batch Conversion',
+    batchDescPdf: 'Convert multiple PDFs to CBZ simultaneously',
+    batchDescCbz: 'Convert multiple CBZs to PDF simultaneously',
+    singleFileMode: 'Single file mode',
+    startConversion: 'Start conversion',
+    files: 'files',
+    file: 'file',
+    conversionInProgress: 'Conversion in progress...',
+    cancel: 'Cancel',
+    globalProgress: 'Global progress',
+    errors: 'errors',
+    maxFilesAllowed: 'Maximum {n} files allowed',
+    fileTooLarge: '"{name}" exceeds the {n} MB limit',
+    serverConnectionError: 'Server connection error',
+    noResponseStream: 'No response stream',
+    conversionError: 'Conversion error',
   },
 
   fr: {
@@ -130,6 +148,24 @@ export const translations = {
     footer: 'Projet open source',
     madeWith: 'Fait avec',
     viewOnGithub: 'Voir sur GitHub',
+
+    // Batch page
+    batchConversion: 'Conversion Batch',
+    batchDescPdf: 'Convertissez plusieurs PDFs en CBZ simultanément',
+    batchDescCbz: 'Convertissez plusieurs CBZs en PDF simultanément',
+    singleFileMode: 'Mode fichier unique',
+    startConversion: 'Démarrer la conversion',
+    files: 'fichiers',
+    file: 'fichier',
+    conversionInProgress: 'Conversion en cours...',
+    cancel: 'Annuler',
+    globalProgress: 'Progression globale',
+    errors: 'erreurs',
+    maxFilesAllowed: 'Maximum {n} fichiers autorisés',
+    fileTooLarge: '"{name}" dépasse la limite de {n} MB',
+    serverConnectionError: 'Erreur de connexion au serveur',
+    noResponseStream: 'Pas de flux de réponse',
+    conversionError: 'Erreur de conversion',
   },
 
   es: {
@@ -192,6 +228,24 @@ export const translations = {
     footer: 'Proyecto de código abierto',
     madeWith: 'Hecho con',
     viewOnGithub: 'Ver en GitHub',
+
+    // Batch page
+    batchConversion: 'Conversión por lotes',
+    batchDescPdf: 'Convierte varios PDFs a CBZ simultáneamente',
+    batchDescCbz: 'Convierte varios CBZs a PDF simultáneamente',
+    singleFileMode: 'Modo archivo único',
+    startConversion: 'Iniciar conversión',
+    files: 'archivos',
+    file: 'archivo',
+    conversionInProgress: 'Conversión en curso...',
+    cancel: 'Cancelar',
+    globalProgress: 'Progreso global',
+    errors: 'errores',
+    maxFilesAllowed: 'Máximo {n} archivos permitidos',
+    fileTooLarge: '"{name}" supera el límite de {n} MB',
+    serverConnectionError: 'Error de conexión al servidor',
+    noResponseStream: 'Sin flujo de respuesta',
+    conversionError: 'Error de conversión',
   },
 
   zh: {
@@ -254,6 +308,24 @@ export const translations = {
     footer: '开源项目',
     madeWith: '使用',
     viewOnGithub: '在GitHub上查看',
+
+    // Batch page
+    batchConversion: '批量转换',
+    batchDescPdf: '同时转换多个PDF为CBZ',
+    batchDescCbz: '同时转换多个CBZ为PDF',
+    singleFileMode: '单文件模式',
+    startConversion: '开始转换',
+    files: '个文件',
+    file: '个文件',
+    conversionInProgress: '转换中...',
+    cancel: '取消',
+    globalProgress: '总体进度',
+    errors: '个错误',
+    maxFilesAllowed: '最多允许{n}个文件',
+    fileTooLarge: '"{name}"超过{n}MB限制',
+    serverConnectionError: '服务器连接错误',
+    noResponseStream: '无响应流',
+    conversionError: '转换错误',
   },
 } as const;
 

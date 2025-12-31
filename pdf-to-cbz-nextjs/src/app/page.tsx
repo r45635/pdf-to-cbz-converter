@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/useTranslation';
-import { languages } from '@/lib/translations';
+import LanguageSelector from '@/components/LanguageSelector';
 
 type ConversionMode = 'pdf-to-cbz' | 'cbz-to-pdf';
 
@@ -920,20 +920,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             {/* Language Selector */}
-            <div className="flex bg-gray-800 rounded-lg p-1">
-              {languages.map((l) => (
-                <button
-                  key={l.code}
-                  onClick={() => setLang(l.code)}
-                  className={`px-2 py-1 rounded text-sm transition-colors ${
-                    lang === l.code ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white'
-                  }`}
-                  title={l.name}
-                >
-                  {l.flag}
-                </button>
-              ))}
-            </div>
+            <LanguageSelector currentLang={lang} onLanguageChange={setLang} />
             <Link
               href="/batch"
               className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"

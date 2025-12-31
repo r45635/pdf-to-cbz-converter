@@ -5,6 +5,8 @@ import Link from 'next/link';
 import BatchUploader from '@/components/BatchUploader';
 import BatchSettingsPanel from '@/components/BatchSettings';
 import BatchResults from '@/components/BatchResults';
+import LanguageSelector from '@/components/LanguageSelector';
+import { useTranslation } from '@/lib/useTranslation';
 import {
   BatchFileState,
   BatchJobState,
@@ -17,6 +19,7 @@ import {
 } from '@/lib/batch-types';
 
 export default function BatchPage() {
+  const { lang, setLang, t } = useTranslation();
   // State
   const [mode, setMode] = useState<BatchConversionMode>('pdf-to-cbz');
   const [config, setConfig] = useState<BatchConfig>(DEFAULT_BATCH_CONFIG);
@@ -77,14 +80,14 @@ export default function BatchPage() {
       for (const file of newFiles) {
         // Check limits
         if (currentCount + filesToAdd.length >= config.maxFiles) {
-          setError(`Maximum ${config.maxFiles} fichiers autorisés`);
+          setError(t('maxFilesAllowed').replace('{n}', config.maxFiles.toString()));
           break;
         }
 
         const sizeMB = file.size / (1024 * 1024);
 
         if (sizeMB > config.maxFileSizeMB) {
-          setError(`"${file.name}" dépasse la limite de ${config.maxFileSizeMB} MB`);
+          setError(t('fileTooLarge').replace('{name}', file.name).replace('{n}', config.maxFileSizeMB.toString()));
           continue;
         }
 
@@ -169,11 +172,11 @@ export default function BatchPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Erreur de connexion au serveur');
+        throw new Error(t('serverConnectionError'));
       }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('Pas de flux de réponse');
+      if (!reader) throw new Error(t('noResponseStream'));
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -202,11 +205,11 @@ export default function BatchPage() {
       if (err instanceof Error && err.name === 'AbortError') {
         setJob((prev) => ({ ...prev, status: 'idle' }));
       } else {
-        setError(err instanceof Error ? err.message : 'Erreur de conversion');
+        setError(err instanceof Error ? err.message : t('conversionError'));
         setJob((prev) => ({ ...prev, status: 'failed' }));
       }
     }
-  }, [job.files, settings, mode]);
+  }, [job.files, settings, mode, t]);
 
   // Handle SSE events
   const handleSSEEvent = useCallback((event: BatchSSEEvent) => {
@@ -361,11 +364,9 @@ export default function BatchPage() {
         <header className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-blue-400">Conversion Batch</h1>
+              <h1 className="text-2xl font-bold text-blue-400">{t('batchConversion')}</h1>
               <p className="text-sm text-gray-400">
-                {mode === 'pdf-to-cbz'
-                  ? 'Convertissez plusieurs PDFs en CBZ simultanément'
-                  : 'Convertissez plusieurs CBZs en PDF simultanément'}
+                {mode === 'pdf-to-cbz' ? t('batchDescPdf') : t('batchDescCbz')}
               </p>
             </div>
             <div className="flex bg-gray-800 rounded-lg p-1">
@@ -375,7 +376,7 @@ export default function BatchPage() {
                   mode === 'pdf-to-cbz' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                PDF → CBZ
+                {t('pdfToCbz')}
               </button>
               <button
                 onClick={() => handleModeChange('cbz-to-pdf')}
@@ -383,16 +384,19 @@ export default function BatchPage() {
                   mode === 'cbz-to-pdf' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                CBZ → PDF
+                {t('cbzToPdf')}
               </button>
             </div>
           </div>
-          <Link
-            href="/"
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
-            Mode fichier unique
-          </Link>
+          <div className="flex items-center gap-3">
+            <LanguageSelector currentLang={lang} onLanguageChange={setLang} />
+            <Link
+              href="/"
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              {t('singleFileMode')}
+            </Link>
+          </div>
         </header>
 
         {/* Error Banner */}
@@ -447,14 +451,14 @@ export default function BatchPage() {
                 {isProcessing ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Conversion en cours...
+                    {t('conversionInProgress')}
                   </>
                 ) : (
                   <>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                     </svg>
-                    Démarrer la conversion ({job.files.length} fichier{job.files.length > 1 ? 's' : ''})
+                    {t('startConversion')} ({job.files.length} {job.files.length > 1 ? t('files') : t('file')})
                   </>
                 )}
               </button>
@@ -464,7 +468,7 @@ export default function BatchPage() {
                   onClick={handleCancel}
                   className="px-6 py-3 bg-red-600 hover:bg-red-500 rounded-lg font-medium transition-colors"
                 >
-                  Annuler
+                  {t('cancel')}
                 </button>
               )}
             </div>
@@ -473,7 +477,7 @@ export default function BatchPage() {
             {isProcessing && (
               <div className="bg-gray-800 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-300">Progression globale</span>
+                  <span className="text-sm text-gray-300">{t('globalProgress')}</span>
                   <span className="text-sm text-blue-400">
                     {completedCount + errorCount}/{job.files.length}
                   </span>
@@ -488,7 +492,7 @@ export default function BatchPage() {
                 </div>
                 {errorCount > 0 && (
                   <p className="mt-2 text-xs text-red-400">
-                    {errorCount} erreur{errorCount > 1 ? 's' : ''}
+                    {errorCount} {t('errors')}
                   </p>
                 )}
               </div>
@@ -509,8 +513,22 @@ export default function BatchPage() {
         </div>
 
         {/* Footer */}
-        <footer className="mt-8 text-center text-gray-600 text-xs">
-          PDF ↔ CBZ Converter - Mode Batch
+        <footer className="mt-8 py-3 border-t border-gray-800 text-center text-gray-500 text-sm">
+          <div className="flex items-center justify-center gap-2">
+            <span>{t('footer')}</span>
+            <span className="text-gray-700">•</span>
+            <a
+              href="https://github.com/r45635/pdf-to-cbz-converter"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+              </svg>
+              {t('viewOnGithub')}
+            </a>
+          </div>
         </footer>
       </div>
     </div>
