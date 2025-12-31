@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useTranslation } from '@/lib/useTranslation';
+import { languages } from '@/lib/translations';
 
 type ConversionMode = 'pdf-to-cbz' | 'cbz-to-pdf';
 
@@ -59,6 +61,7 @@ function isPdfAnalysis(analysis: AnalysisResult): analysis is PdfAnalysisResult 
 }
 
 export default function Home() {
+  const { lang, setLang, t } = useTranslation();
   const [mode, setMode] = useState<ConversionMode>('pdf-to-cbz');
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -862,7 +865,7 @@ export default function Home() {
         <header className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-blue-400">
-              {mode === 'pdf-to-cbz' ? 'PDF → CBZ' : 'CBZ → PDF'}
+              {mode === 'pdf-to-cbz' ? t('pdfToCbz') : t('cbzToPdf')}
             </h1>
             <div className="flex bg-gray-800 rounded-lg p-1">
               <button
@@ -887,7 +890,7 @@ export default function Home() {
                   mode === 'pdf-to-cbz' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                PDF → CBZ
+                {t('pdfToCbz')}
               </button>
               <button
                 onClick={() => {
@@ -911,19 +914,36 @@ export default function Home() {
                   mode === 'cbz-to-pdf' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                CBZ → PDF
+                {t('cbzToPdf')}
               </button>
             </div>
           </div>
-          <Link
-            href="/batch"
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            Mode Batch
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* Language Selector */}
+            <div className="flex bg-gray-800 rounded-lg p-1">
+              {languages.map((l) => (
+                <button
+                  key={l.code}
+                  onClick={() => setLang(l.code)}
+                  className={`px-2 py-1 rounded text-sm transition-colors ${
+                    lang === l.code ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                  title={l.name}
+                >
+                  {l.flag}
+                </button>
+              ))}
+            </div>
+            <Link
+              href="/batch"
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              {t('batchMode')}
+            </Link>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -963,7 +983,7 @@ export default function Home() {
                   <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                   </svg>
-                  <p>Drop {mode === 'pdf-to-cbz' ? 'PDF' : 'CBZ'} here or click to browse</p>
+                  <p>{mode === 'pdf-to-cbz' ? t('dropPdf') : t('dropCbz')}</p>
                 </div>
               )}
             </div>
@@ -971,7 +991,7 @@ export default function Home() {
             {/* Analysis Results */}
             {isAnalyzing && (
               <div className="bg-gray-800 rounded-lg p-3 animate-pulse">
-                <p className="text-center text-gray-400 text-sm">Analyzing PDF...</p>
+                <p className="text-center text-gray-400 text-sm">{t('analyzing')}</p>
               </div>
             )}
 
@@ -981,10 +1001,10 @@ export default function Home() {
                   {isPdfAnalysis(analysis) ? (
                     <>
                       <div className="flex gap-4">
-                        <span><span className="text-gray-400">Pages:</span> {analysis.pageCount}</span>
-                        <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.pdfSizeMB.toFixed(1)}MB</span></span>
-                        <span><span className="text-gray-400">Native:</span> {analysis.nativeDpi}DPI</span>
-                        <span><span className="text-gray-400">HD:</span> {analysis.recommendedDpi}DPI</span>
+                        <span><span className="text-gray-400">{t('pages')}:</span> {analysis.pageCount}</span>
+                        <span><span className="text-gray-400">{t('size')}:</span> <span className="text-green-400">{analysis.pdfSizeMB.toFixed(1)}MB</span></span>
+                        <span><span className="text-gray-400">{t('native')}:</span> {analysis.nativeDpi}DPI</span>
+                        <span><span className="text-gray-400">{t('hd')}:</span> {analysis.recommendedDpi}DPI</span>
                       </div>
                       <span className={`font-bold ${
                         estimatedSize && analysis.pdfSizeMB && Math.abs(estimatedSize - analysis.pdfSizeMB) < analysis.pdfSizeMB * 0.2
@@ -996,10 +1016,10 @@ export default function Home() {
                   ) : (
                     <>
                       <div className="flex gap-4">
-                        <span><span className="text-gray-400">Images:</span> {analysis.pageCount}</span>
-                        <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.cbzSizeMB.toFixed(1)}MB</span></span>
+                        <span><span className="text-gray-400">{t('images')}:</span> {analysis.pageCount}</span>
+                        <span><span className="text-gray-400">{t('size')}:</span> <span className="text-green-400">{analysis.cbzSizeMB.toFixed(1)}MB</span></span>
                         {analysis.pages.length > 0 && (
-                          <span><span className="text-gray-400">Dim:</span> {analysis.pages[0].width}x{analysis.pages[0].height}</span>
+                          <span><span className="text-gray-400">{t('dimensions')}:</span> {analysis.pages[0].width}x{analysis.pages[0].height}</span>
                         )}
                       </div>
                       <span className={`font-bold ${
@@ -1018,7 +1038,7 @@ export default function Home() {
             {analysis && mode === 'pdf-to-cbz' && isPdfAnalysis(analysis) && (
               <div className="bg-gradient-to-r from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-lg p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">Auto-find optimal DPI/quality</span>
+                  <span className="text-sm text-gray-400">{t('autoOptimize')}</span>
                   <button
                     onClick={handleOptimize}
                     disabled={isOptimizing || !file}
@@ -1034,7 +1054,7 @@ export default function Home() {
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
-                        Find Optimal
+                        {t('findOptimal')}
                       </>
                     )}
                   </button>
@@ -1076,7 +1096,7 @@ export default function Home() {
                       <svg className={`w-3 h-3 transition-transform ${showAllResults ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
-                      {showAllResults ? 'Hide' : 'Show'} {testResults.length} results
+                      {showAllResults ? t('hideResults') : t('showResults')} {testResults.length} {t('results')}
                     </button>
 
                     {showAllResults && (
@@ -1128,7 +1148,7 @@ export default function Home() {
                         matchPdfSize && !dpi ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                       }`}
                     >
-                      Match PDF ({analysis.nativeDpi})
+                      {t('matchPdf')} ({analysis.nativeDpi})
                     </button>
                     <button
                       onClick={() => { setMatchPdfSize(false); setDpi(''); }}
@@ -1136,7 +1156,7 @@ export default function Home() {
                         !matchPdfSize && !dpi ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                       }`}
                     >
-                      HD ({analysis.recommendedDpi})
+                      {t('hd')} ({analysis.recommendedDpi})
                     </button>
                     <input
                       type="number"
@@ -1179,7 +1199,7 @@ export default function Home() {
                 {/* Scale slider for CBZ→PDF */}
                 {mode === 'cbz-to-pdf' && (
                   <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-400">Scale:</span>
+                    <span className="text-sm text-gray-400">{t('scale')}:</span>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setCbzScale(100)}
@@ -1227,16 +1247,16 @@ export default function Home() {
                 disabled={!file || isConverting || isExtracting}
                 className={`px-3 py-3 ${mode === 'pdf-to-cbz' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-green-600 hover:bg-green-500'} disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors`}
               >
-                {isConverting ? 'Converting...' : mode === 'pdf-to-cbz'
-                  ? `Convert (~${estimatedSize?.toFixed(0) || '?'}MB)`
-                  : `Convert (~${estimatedCbzToPdfSize?.toFixed(0) || '?'}MB)`}
+                {isConverting ? t('converting') : mode === 'pdf-to-cbz'
+                  ? `${t('convert')} (~${estimatedSize?.toFixed(0) || '?'}MB)`
+                  : `${t('convert')} (~${estimatedCbzToPdfSize?.toFixed(0) || '?'}MB)`}
               </button>
               <button
                 onClick={handleDirectExtract}
                 disabled={!file || isExtracting || isConverting}
                 className={`px-3 py-3 ${mode === 'pdf-to-cbz' ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors`}
               >
-                {isExtracting ? 'Extracting...' : 'Direct'}
+                {isExtracting ? t('extracting') : t('direct')}
               </button>
             </div>
 
@@ -1277,9 +1297,9 @@ export default function Home() {
           <div className="bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-blue-400">
-                {compareMode ? 'Comparison' : 'Live Preview'}
+                {compareMode ? t('comparison') : t('livePreview')}
                 {isPreviewLoading && (
-                  <span className="ml-2 text-sm text-gray-400 animate-pulse">updating...</span>
+                  <span className="ml-2 text-sm text-gray-400 animate-pulse">{t('updating')}</span>
                 )}
               </h3>
               <div className="flex items-center gap-2">
@@ -1288,7 +1308,7 @@ export default function Home() {
                     onClick={() => loadComparisonImages()}
                     className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded text-sm font-medium"
                   >
-                    Compare
+                    {t('compare')}
                   </button>
                 )}
                 {compareMode && (
@@ -1296,7 +1316,7 @@ export default function Home() {
                     onClick={() => setCompareMode(false)}
                     className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-sm font-medium"
                   >
-                    Back
+                    {t('back')}
                   </button>
                 )}
                 {analysis && analysis.pageCount > 1 && (
@@ -1309,7 +1329,7 @@ export default function Home() {
                       &lt;
                     </button>
                     <span className="text-sm">
-                      Page {previewPage} of {analysis.pageCount}
+                      {t('page')} {previewPage} {t('of')} {analysis.pageCount}
                     </span>
                     <button
                       onClick={() => setPreviewPage((p) => Math.min(analysis.pageCount, p + 1))}
@@ -1326,7 +1346,7 @@ export default function Home() {
                     <button onClick={() => setCompareZoom((z) => Math.max(0.5, z - 0.25))} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">-</button>
                     <span className="text-sm text-gray-400 w-12 text-center">{Math.round(compareZoom * 100)}%</span>
                     <button onClick={() => setCompareZoom((z) => Math.min(10, z + 0.25))} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm">+</button>
-                    <button onClick={() => { setCompareZoom(1); setComparePan({ x: 0, y: 0 }); }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Reset</button>
+                    <button onClick={() => { setCompareZoom(1); setComparePan({ x: 0, y: 0 }); }} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">{t('reset')}</button>
                   </>
                 )}
               </div>
@@ -1352,7 +1372,7 @@ export default function Home() {
                   ) : isPreviewLoading ? (
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-10 h-10 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-gray-400">Loading preview...</span>
+                      <span className="text-gray-400">{t('loadingPreview')}</span>
                     </div>
                   ) : (
                     <div className="text-gray-500 text-center p-4">
@@ -1360,11 +1380,11 @@ export default function Home() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                       {mode === 'pdf-to-cbz' ? (
-                        <p>Upload a PDF to see preview</p>
+                        <p>{t('uploadPdf')}</p>
                       ) : analysis ? (
-                        <p className="text-green-400">CBZ ready for conversion ({analysis.pageCount} images)</p>
+                        <p className="text-green-400">{t('cbzReady')} ({analysis.pageCount} {t('images')})</p>
                       ) : (
-                        <p>Upload a CBZ file to convert</p>
+                        <p>{t('uploadCbz')}</p>
                       )}
                     </div>
                   )}
@@ -1422,7 +1442,7 @@ export default function Home() {
                       <div className="w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
                     )}
                     <div className="absolute bottom-1 left-1 bg-black/80 text-xs text-green-400 px-1.5 py-0.5 rounded">
-                      Original {originalImageInfo ? `${originalImageInfo.sizeKB}KB` : ''}
+                      {t('original')} {originalImageInfo ? `${originalImageInfo.sizeKB}KB` : ''}
                     </div>
                   </div>
 
@@ -1462,8 +1482,22 @@ export default function Home() {
         </div>
 
         {/* Footer */}
-        <footer className="mt-4 text-center text-gray-600 text-xs">
-          PDF ↔ CBZ Converter
+        <footer className="mt-4 py-3 border-t border-gray-800 text-center text-gray-500 text-sm">
+          <div className="flex items-center justify-center gap-2">
+            <span>{t('footer')}</span>
+            <span className="text-gray-700">•</span>
+            <a
+              href="https://github.com/r45635/pdf-to-cbz-converter"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+              </svg>
+              {t('viewOnGithub')}
+            </a>
+          </div>
         </footer>
       </div>
     </div>
