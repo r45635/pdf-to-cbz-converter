@@ -80,7 +80,7 @@ docker run -p 3000:3000 r45635/pdf-to-cbz:latest
 # Open http://localhost:3000
 ```
 
-Available tags: `latest`, `v2.2.2`
+Available tags: `latest`, `v2.5.0`
 
 ---
 
