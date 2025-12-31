@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.0] - 2025-12-31
+
+### Added
+- **Multi-language Support**: Full internationalization with 4 languages
+  - English, Français, Español, 中文
+  - Language selector dropdown in header
+  - Automatic browser language detection
+  - Language preference saved in localStorage
+  - All pages translated including batch mode components
+- **GitHub Footer**: Added footer with link to GitHub repository
+
+### Changed
+- **Docker Optimization**: Reduced image size from ~800MB to ~534MB
+  - Merged deps and builder stages into single stage
+  - Use `--no-install-recommends` for apt packages
+  - Prune dev dependencies after build with `npm prune --omit=dev`
+  - Copy only required native modules (canvas, sharp, @img) instead of full node_modules
+- **Unified Interface**: Consistent UI for both PDF→CBZ and CBZ→PDF modes
+  - Comparison mode available for both directions
+  - Format selection (JPEG/PNG) for CBZ→PDF
+  - Scale slider for CBZ→PDF
+  - Better state cleanup when switching modes
+
+### Fixed
+- Language not syncing across pages (using useSyncExternalStore)
+- Preview/comparison state not clearing when switching modes
+
 ## [2.4.0] - 2025-12-30
 
 ### Added
