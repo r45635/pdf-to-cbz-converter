@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { BatchFileState } from '@/lib/batch-types';
+import { useTranslation } from '@/lib/useTranslation';
 
 interface BatchResultsProps {
   jobId: string;
@@ -18,6 +19,7 @@ export default function BatchResults({
   downloadAllUrl,
   onClose,
 }: BatchResultsProps) {
+  const { t } = useTranslation();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const completedFiles = files.filter((f) => f.status === 'done' && f.result);
@@ -26,14 +28,14 @@ export default function BatchResults({
   const getRemainingTime = useCallback(() => {
     if (!expiresAt) return null;
     const remaining = expiresAt - Date.now();
-    if (remaining <= 0) return 'Expiré';
+    if (remaining <= 0) return t('expired');
 
     const minutes = Math.floor(remaining / 60000);
     if (minutes < 60) return `${minutes} min`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}min`;
-  }, [expiresAt]);
+  }, [expiresAt, t]);
 
   const copyToClipboard = useCallback(async (text: string, id: string) => {
     try {
@@ -59,12 +61,12 @@ export default function BatchResults({
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-green-900/50 to-blue-900/50 border-b border-gray-700">
         <div>
           <h3 className="font-medium text-gray-200">
-            Conversion terminée
+            {t('conversionComplete')}
           </h3>
           <p className="text-xs text-gray-400">
-            {completedFiles.length} réussi{completedFiles.length > 1 ? 's' : ''}
-            {failedFiles.length > 0 && `, ${failedFiles.length} erreur${failedFiles.length > 1 ? 's' : ''}`}
-            {expiresAt && ` • Expire dans ${getRemainingTime()}`}
+            {completedFiles.length} {t('succeeded')}
+            {failedFiles.length > 0 && `, ${failedFiles.length} ${t('errors')}`}
+            {expiresAt && ` • ${t('expiresIn')} ${getRemainingTime()}`}
           </p>
         </div>
         <button
@@ -104,7 +106,7 @@ export default function BatchResults({
                 download={file.result?.outputName}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm font-medium transition-colors"
               >
-                Télécharger
+                {t('download')}
               </a>
 
               {/* Copy Link Button */}
@@ -115,7 +117,7 @@ export default function BatchResults({
                     ? 'bg-green-600 text-white'
                     : 'bg-gray-700 text-gray-400 hover:text-gray-200'
                 }`}
-                title="Copier le lien"
+                title={t('copyLink')}
               >
                 {copiedId === file.id ? (
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,7 +144,7 @@ export default function BatchResults({
             {/* File Info */}
             <div className="flex-1 min-w-0">
               <p className="text-sm text-gray-200 truncate">{file.originalName}</p>
-              <p className="text-xs text-red-400">{file.error || 'Erreur de conversion'}</p>
+              <p className="text-xs text-red-400">{file.error || t('conversionError')}</p>
             </div>
           </div>
         ))}
@@ -161,7 +163,7 @@ export default function BatchResults({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Tout télécharger (ZIP)
+              {t('downloadAllZip')}
             </a>
           )}
 
@@ -179,14 +181,14 @@ export default function BatchResults({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Copié !
+                {t('copied')}
               </>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
-                Copier tous les liens
+                {t('copyAllLinks')}
               </>
             )}
           </button>

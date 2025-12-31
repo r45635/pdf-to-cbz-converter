@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { BatchSettings, BatchConfig, BatchConversionMode } from '@/lib/batch-types';
+import { useTranslation } from '@/lib/useTranslation';
 
 interface BatchSettingsProps {
   settings: BatchSettings;
@@ -21,15 +22,16 @@ export default function BatchSettingsPanel({
   mode,
 }: BatchSettingsProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <div className="bg-gray-800 rounded-lg p-4 space-y-4">
-      <h3 className="text-sm font-medium text-gray-300">Paramètres de conversion</h3>
+      <h3 className="text-sm font-medium text-gray-300">{t('conversionSettings')}</h3>
 
       {/* DPI - PDF to CBZ only */}
       {mode === 'pdf-to-cbz' && (
         <div className="space-y-2">
-          <label className="text-xs text-gray-400">Résolution (DPI)</label>
+          <label className="text-xs text-gray-400">{t('resolution')}</label>
           <div className="flex gap-2">
             <button
               onClick={() => onChange({ ...settings, dpi: 'auto' })}
@@ -40,7 +42,7 @@ export default function BatchSettingsPanel({
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
               } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Auto (natif)
+              {t('autoNative')}
             </button>
             <input
               type="number"
@@ -71,7 +73,7 @@ export default function BatchSettingsPanel({
       {/* Format - PDF to CBZ only */}
       {mode === 'pdf-to-cbz' && (
         <div className="space-y-2">
-          <label className="text-xs text-gray-400">Format d&apos;image</label>
+          <label className="text-xs text-gray-400">{t('imageFormat')}</label>
           <div className="flex gap-4">
             <label className={`flex items-center cursor-pointer ${disabled ? 'opacity-50' : ''}`}>
               <input
@@ -104,7 +106,7 @@ export default function BatchSettingsPanel({
       {/* Quality */}
       {(mode === 'cbz-to-pdf' || settings.format === 'jpeg') && (
         <div className="space-y-2">
-          <label className="text-xs text-gray-400">Qualité JPEG</label>
+          <label className="text-xs text-gray-400">{t('jpegQuality')}</label>
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -122,7 +124,7 @@ export default function BatchSettingsPanel({
 
       {/* Expiration */}
       <div className="space-y-2">
-        <label className="text-xs text-gray-400">Expiration des résultats</label>
+        <label className="text-xs text-gray-400">{t('resultsExpiration')}</label>
         <select
           value={settings.expireMinutes}
           onChange={(e) => onChange({ ...settings, expireMinutes: parseInt(e.target.value, 10) })}
@@ -131,12 +133,12 @@ export default function BatchSettingsPanel({
             disabled ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         >
-          <option value={30}>30 minutes</option>
-          <option value={60}>1 heure</option>
-          <option value={120}>2 heures</option>
-          <option value={360}>6 heures</option>
-          <option value={720}>12 heures</option>
-          {config.maxExpireMinutes >= 1440 && <option value={1440}>24 heures</option>}
+          <option value={30}>30 {t('minutes')}</option>
+          <option value={60}>1 {t('hour')}</option>
+          <option value={120}>2 {t('hours')}</option>
+          <option value={360}>6 {t('hours')}</option>
+          <option value={720}>12 {t('hours')}</option>
+          {config.maxExpireMinutes >= 1440 && <option value={1440}>24 {t('hours')}</option>}
         </select>
       </div>
 
@@ -154,7 +156,7 @@ export default function BatchSettingsPanel({
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-          Paramètres avancés
+          {t('advancedSettings')}
         </button>
 
         {showAdvanced && (
@@ -162,7 +164,7 @@ export default function BatchSettingsPanel({
             {/* Max Files */}
             <div className="space-y-1">
               <label className="text-xs text-gray-400">
-                Nombre max de fichiers (max serveur: {config.serverMaxFiles})
+                {t('maxFilesLabel').replace('{n}', String(config.serverMaxFiles))}
               </label>
               <input
                 type="number"
@@ -185,7 +187,7 @@ export default function BatchSettingsPanel({
             {/* Max File Size */}
             <div className="space-y-1">
               <label className="text-xs text-gray-400">
-                Taille max par fichier en MB (max serveur: {config.serverMaxFileSizeMB})
+                {t('maxFileSizeLabel').replace('{n}', String(config.serverMaxFileSizeMB))}
               </label>
               <input
                 type="number"
@@ -207,7 +209,7 @@ export default function BatchSettingsPanel({
 
             {/* Info */}
             <p className="text-xs text-gray-500">
-              Ces limites s&apos;appliquent à cette session. Le serveur a des limites maximales que vous ne pouvez pas dépasser.
+              {t('advancedInfo')}
             </p>
           </div>
         )}

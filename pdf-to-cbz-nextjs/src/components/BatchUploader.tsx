@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { BatchConfig, BatchFileState, BatchConversionMode } from '@/lib/batch-types';
+import { useTranslation } from '@/lib/useTranslation';
 
 interface BatchUploaderProps {
   files: BatchFileState[];
@@ -22,6 +23,7 @@ export default function BatchUploader({
   disabled = false,
   mode,
 }: BatchUploaderProps) {
+  const { t } = useTranslation();
   const fileExtension = mode === 'pdf-to-cbz' ? '.pdf' : '.cbz';
   const fileTypeName = mode === 'pdf-to-cbz' ? 'PDF' : 'CBZ';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -94,18 +96,18 @@ export default function BatchUploader({
   const getStatusText = (file: BatchFileState) => {
     switch (file.status) {
       case 'pending':
-        return 'En attente';
+        return t('pending');
       case 'analyzing':
-        return 'Analyse...';
+        return t('analyzing');
       case 'converting':
         if (file.currentPage && file.totalPages) {
-          return `Page ${file.currentPage}/${file.totalPages}`;
+          return t('pageProgress').replace('{current}', String(file.currentPage)).replace('{total}', String(file.totalPages));
         }
         return `${file.progress}%`;
       case 'done':
-        return file.result ? `${file.result.sizeMB.toFixed(1)} MB` : 'Terminé';
+        return file.result ? `${file.result.sizeMB.toFixed(1)} MB` : t('completed');
       case 'error':
-        return file.error || 'Erreur';
+        return file.error || t('error');
     }
   };
 
@@ -151,20 +153,20 @@ export default function BatchUploader({
 
           {files.length === 0 ? (
             <p className="text-gray-400">
-              Glissez vos {fileTypeName}s ici ou cliquez pour parcourir
+              {t('dropFilesHere').replace('{type}', fileTypeName)}
             </p>
           ) : canAddMore ? (
             <p className="text-gray-400">
-              Ajouter plus de fichiers ({files.length}/{config.maxFiles})
+              {t('addMoreFiles').replace('{n}', String(files.length)).replace('{max}', String(config.maxFiles))}
             </p>
           ) : (
             <p className="text-yellow-400">
-              Limite atteinte ({files.length}/{config.maxFiles} fichiers)
+              {t('limitReached').replace('{n}', String(files.length)).replace('{max}', String(config.maxFiles))}
             </p>
           )}
 
           <p className="text-xs text-gray-500">
-            Max {config.maxFiles} fichiers, {config.maxFileSizeMB} MB/fichier
+            {t('maxInfo').replace('{n}', String(config.maxFiles)).replace('{size}', String(config.maxFileSizeMB))}
           </p>
         </div>
       </div>
@@ -175,14 +177,14 @@ export default function BatchUploader({
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 bg-gray-700/50 border-b border-gray-700">
             <span className="text-sm text-gray-300">
-              {files.length} fichier{files.length > 1 ? 's' : ''} ({totalSizeMB.toFixed(1)} MB)
+              {files.length} {files.length > 1 ? t('files') : t('file')} ({totalSizeMB.toFixed(1)} MB)
             </span>
             {!disabled && (
               <button
                 onClick={onClearAll}
                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
               >
-                Tout supprimer
+                {t('deleteAll')}
               </button>
             )}
           </div>

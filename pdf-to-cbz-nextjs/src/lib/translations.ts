@@ -86,6 +86,43 @@ export const translations = {
     serverConnectionError: 'Server connection error',
     noResponseStream: 'No response stream',
     conversionError: 'Conversion error',
+
+    // BatchSettings
+    conversionSettings: 'Conversion settings',
+    resolution: 'Resolution (DPI)',
+    autoNative: 'Auto (native)',
+    imageFormat: 'Image format',
+    jpegQuality: 'JPEG quality',
+    resultsExpiration: 'Results expiration',
+    minutes: 'minutes',
+    hour: 'hour',
+    hours: 'hours',
+    advancedSettings: 'Advanced settings',
+    maxFilesLabel: 'Max files (server max: {n})',
+    maxFileSizeLabel: 'Max file size in MB (server max: {n})',
+    advancedInfo: 'These limits apply to this session. The server has maximum limits you cannot exceed.',
+
+    // BatchUploader
+    dropFilesHere: 'Drop your {type}s here or click to browse',
+    addMoreFiles: 'Add more files ({n}/{max})',
+    limitReached: 'Limit reached ({n}/{max} files)',
+    maxInfo: 'Max {n} files, {size} MB/file',
+    deleteAll: 'Delete all',
+    pending: 'Pending',
+    pageProgress: 'Page {current}/{total}',
+    completed: 'Completed',
+    error: 'Error',
+
+    // BatchResults
+    conversionComplete: 'Conversion complete',
+    succeeded: 'succeeded',
+    expiresIn: 'Expires in',
+    expired: 'Expired',
+    download: 'Download',
+    copyLink: 'Copy link',
+    downloadAllZip: 'Download all (ZIP)',
+    copyAllLinks: 'Copy all links',
+    copied: 'Copied!',
   },
 
   fr: {
@@ -166,6 +203,43 @@ export const translations = {
     serverConnectionError: 'Erreur de connexion au serveur',
     noResponseStream: 'Pas de flux de réponse',
     conversionError: 'Erreur de conversion',
+
+    // BatchSettings
+    conversionSettings: 'Paramètres de conversion',
+    resolution: 'Résolution (DPI)',
+    autoNative: 'Auto (natif)',
+    imageFormat: 'Format d\'image',
+    jpegQuality: 'Qualité JPEG',
+    resultsExpiration: 'Expiration des résultats',
+    minutes: 'minutes',
+    hour: 'heure',
+    hours: 'heures',
+    advancedSettings: 'Paramètres avancés',
+    maxFilesLabel: 'Fichiers max (max serveur: {n})',
+    maxFileSizeLabel: 'Taille max en MB (max serveur: {n})',
+    advancedInfo: 'Ces limites s\'appliquent à cette session. Le serveur a des limites maximales que vous ne pouvez pas dépasser.',
+
+    // BatchUploader
+    dropFilesHere: 'Glissez vos {type}s ici ou cliquez pour parcourir',
+    addMoreFiles: 'Ajouter des fichiers ({n}/{max})',
+    limitReached: 'Limite atteinte ({n}/{max} fichiers)',
+    maxInfo: 'Max {n} fichiers, {size} MB/fichier',
+    deleteAll: 'Tout supprimer',
+    pending: 'En attente',
+    pageProgress: 'Page {current}/{total}',
+    completed: 'Terminé',
+    error: 'Erreur',
+
+    // BatchResults
+    conversionComplete: 'Conversion terminée',
+    succeeded: 'réussis',
+    expiresIn: 'Expire dans',
+    expired: 'Expiré',
+    download: 'Télécharger',
+    copyLink: 'Copier le lien',
+    downloadAllZip: 'Tout télécharger (ZIP)',
+    copyAllLinks: 'Copier tous les liens',
+    copied: 'Copié !',
   },
 
   es: {
@@ -246,6 +320,43 @@ export const translations = {
     serverConnectionError: 'Error de conexión al servidor',
     noResponseStream: 'Sin flujo de respuesta',
     conversionError: 'Error de conversión',
+
+    // BatchSettings
+    conversionSettings: 'Configuración de conversión',
+    resolution: 'Resolución (DPI)',
+    autoNative: 'Auto (nativo)',
+    imageFormat: 'Formato de imagen',
+    jpegQuality: 'Calidad JPEG',
+    resultsExpiration: 'Expiración de resultados',
+    minutes: 'minutos',
+    hour: 'hora',
+    hours: 'horas',
+    advancedSettings: 'Configuración avanzada',
+    maxFilesLabel: 'Archivos máx (máx servidor: {n})',
+    maxFileSizeLabel: 'Tamaño máx en MB (máx servidor: {n})',
+    advancedInfo: 'Estos límites aplican a esta sesión. El servidor tiene límites máximos que no puedes exceder.',
+
+    // BatchUploader
+    dropFilesHere: 'Suelta tus {type}s aquí o haz clic para explorar',
+    addMoreFiles: 'Añadir más archivos ({n}/{max})',
+    limitReached: 'Límite alcanzado ({n}/{max} archivos)',
+    maxInfo: 'Máx {n} archivos, {size} MB/archivo',
+    deleteAll: 'Eliminar todo',
+    pending: 'Pendiente',
+    pageProgress: 'Página {current}/{total}',
+    completed: 'Completado',
+    error: 'Error',
+
+    // BatchResults
+    conversionComplete: 'Conversión completa',
+    succeeded: 'exitosos',
+    expiresIn: 'Expira en',
+    expired: 'Expirado',
+    download: 'Descargar',
+    copyLink: 'Copiar enlace',
+    downloadAllZip: 'Descargar todo (ZIP)',
+    copyAllLinks: 'Copiar todos los enlaces',
+    copied: '¡Copiado!',
   },
 
   zh: {
@@ -326,6 +437,43 @@ export const translations = {
     serverConnectionError: '服务器连接错误',
     noResponseStream: '无响应流',
     conversionError: '转换错误',
+
+    // BatchSettings
+    conversionSettings: '转换设置',
+    resolution: '分辨率 (DPI)',
+    autoNative: '自动 (原始)',
+    imageFormat: '图片格式',
+    jpegQuality: 'JPEG质量',
+    resultsExpiration: '结果过期时间',
+    minutes: '分钟',
+    hour: '小时',
+    hours: '小时',
+    advancedSettings: '高级设置',
+    maxFilesLabel: '最大文件数 (服务器限制: {n})',
+    maxFileSizeLabel: '最大文件大小 MB (服务器限制: {n})',
+    advancedInfo: '这些限制适用于本次会话。服务器有最大限制，您无法超过。',
+
+    // BatchUploader
+    dropFilesHere: '将{type}文件拖放到此处或点击浏览',
+    addMoreFiles: '添加更多文件 ({n}/{max})',
+    limitReached: '已达上限 ({n}/{max} 个文件)',
+    maxInfo: '最多 {n} 个文件，每个 {size} MB',
+    deleteAll: '全部删除',
+    pending: '等待中',
+    pageProgress: '第 {current}/{total} 页',
+    completed: '已完成',
+    error: '错误',
+
+    // BatchResults
+    conversionComplete: '转换完成',
+    succeeded: '成功',
+    expiresIn: '过期时间',
+    expired: '已过期',
+    download: '下载',
+    copyLink: '复制链接',
+    downloadAllZip: '全部下载 (ZIP)',
+    copyAllLinks: '复制所有链接',
+    copied: '已复制！',
   },
 } as const;
 
