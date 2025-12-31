@@ -70,6 +70,7 @@ export default function Home() {
   const [format, setFormat] = useState<'jpeg' | 'png'>('jpeg');
   const [quality, setQuality] = useState(85);
   const [matchPdfSize, setMatchPdfSize] = useState(true); // Default: match PDF size
+  const [cbzScale, setCbzScale] = useState(100); // Scale percentage for CBZ→PDF (100 = original size)
 
   // Status
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -110,6 +111,36 @@ export default function Home() {
     if (!analysis || !isPdfAnalysis(analysis)) return 150;
     return matchPdfSize ? analysis.nativeDpi : analysis.recommendedDpi;
   }, [dpi, analysis, matchPdfSize]);
+
+  // Calculate estimated PDF size for CBZ→PDF mode
+  const estimatedCbzToPdfSize = useMemo(() => {
+    if (!analysis || isPdfAnalysis(analysis)) return null;
+
+    // Calculate based on current settings
+    const cbzAnalysis = analysis as CbzAnalysisResult;
+    let totalEstimatedBytes = 0;
+
+    for (const page of cbzAnalysis.pages) {
+      // Scale the dimensions
+      const scaledWidth = Math.round(page.width * (cbzScale / 100));
+      const scaledHeight = Math.round(page.height * (cbzScale / 100));
+      const totalPixels = scaledWidth * scaledHeight;
+
+      // Estimate compressed size based on format and quality
+      let bytesPerPixel: number;
+      if (format === 'png') {
+        bytesPerPixel = 0.8; // PNG compresses well for comic art
+      } else {
+        // JPEG: quality-based estimation
+        bytesPerPixel = 0.05 + (quality / 100) * 0.30;
+      }
+
+      totalEstimatedBytes += totalPixels * bytesPerPixel;
+    }
+
+    // Add PDF overhead (~5%)
+    return (totalEstimatedBytes * 1.05) / (1024 * 1024);
+  }, [analysis, cbzScale, format, quality]);
 
   // Calculate estimated size based on current settings (PDF mode only)
   // Uses real test results when available, otherwise falls back to formula
@@ -286,6 +317,16 @@ export default function Home() {
     setDpi(''); // Reset to auto
     setOptimalParams(null);
     setTestResults([]);
+    // Clean up comparison/preview state
+    setCompareMode(false);
+    setOriginalPreviewUrl(null);
+    setConvertedPreviewUrl(null);
+    setSourceImageData(null);
+    setOriginalImageInfo(null);
+    setConvertedImageInfo(null);
+    setCachedOriginalPage(null);
+    setCompareZoom(1);
+    setComparePan({ x: 0, y: 0 });
 
     setIsAnalyzing(true);
     try {
@@ -501,27 +542,53 @@ export default function Home() {
 
   // Source image for client-side processing (same as original)
   // nativeDpi = the DPI at which the source image was extracted (its "natural" resolution)
+  // For CBZ, nativeDpi is not used (scale % is used instead)
   const [sourceImageData, setSourceImageData] = useState<{ img: HTMLImageElement; nativeDpi: number } | null>(null);
 
-  // Load source image (extract from PDF - only when page changes)
+  // Load source image (extract from PDF or CBZ - only when page changes)
   const loadSourceImage = useCallback(async () => {
-    if (!file || !analysis || mode === 'cbz-to-pdf' || !isPdfAnalysis(analysis)) return;
+    if (!file || !analysis) return;
 
     setIsCompareLoading(true);
 
-    // Load original via direct extraction - this is THE source for everything
     const formData = new FormData();
     formData.append('file', file);
     formData.append('page', previewPage.toString());
 
     try {
-      const res = await fetch('/api/extract-preview', { method: 'POST', body: formData });
+      // Use appropriate endpoint based on mode
+      const endpoint = mode === 'pdf-to-cbz' ? '/api/extract-preview' : '/api/preview-cbz';
+      const res = await fetch(endpoint, { method: 'POST', body: formData });
 
       if (res.ok) {
-        const extractMethod = res.headers.get('X-Extraction-Method') || 'unknown';
-        const imgWidth = parseInt(res.headers.get('X-Image-Width') || '0');
-        const imgHeight = parseInt(res.headers.get('X-Image-Height') || '0');
+        let imgWidth = 0;
+        let imgHeight = 0;
+        let extractMethod = 'direct';
+
+        if (mode === 'pdf-to-cbz') {
+          extractMethod = res.headers.get('X-Extraction-Method') || 'unknown';
+          imgWidth = parseInt(res.headers.get('X-Image-Width') || '0');
+          imgHeight = parseInt(res.headers.get('X-Image-Height') || '0');
+        }
+
         const blob = await res.blob();
+
+        // Create object URL for the image
+        const url = URL.createObjectURL(blob);
+
+        // Load into Image element to get dimensions (for CBZ we need this)
+        const img = new Image();
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = reject;
+          img.src = url;
+        });
+
+        // For CBZ mode, get dimensions from loaded image
+        if (mode === 'cbz-to-pdf') {
+          imgWidth = img.width;
+          imgHeight = img.height;
+        }
 
         setOriginalImageInfo({
           width: imgWidth,
@@ -530,24 +597,15 @@ export default function Home() {
           sizeKB: Math.round(blob.size / 1024)
         });
 
-        const url = URL.createObjectURL(blob);
-
         // Set as original preview
         setOriginalPreviewUrl((prev) => {
           if (prev) URL.revokeObjectURL(prev);
           return url;
         });
 
-        // Also load into Image element for canvas processing
-        const img = new Image();
-        await new Promise<void>((resolve, reject) => {
-          img.onload = () => resolve();
-          img.onerror = reject;
-          img.src = url;
-        });
-
-        // Use nativeDpi from analysis as reference
-        setSourceImageData({ img, nativeDpi: analysis.nativeDpi });
+        // Use nativeDpi from analysis as reference (for PDF), or 100 for CBZ (scale-based)
+        const nativeDpi = isPdfAnalysis(analysis) ? analysis.nativeDpi : 100;
+        setSourceImageData({ img, nativeDpi });
       }
 
       setCachedOriginalPage(previewPage);
@@ -564,10 +622,18 @@ export default function Home() {
 
     const { img, nativeDpi } = sourceImageData;
 
-    // Calculate target size based on DPI ratio
-    const dpiRatio = effectiveDpi / nativeDpi;
-    const targetWidth = Math.round(img.width * dpiRatio);
-    const targetHeight = Math.round(img.height * dpiRatio);
+    // Calculate target size based on mode
+    let scaleRatio: number;
+    if (mode === 'pdf-to-cbz') {
+      // PDF mode: use DPI ratio
+      scaleRatio = effectiveDpi / nativeDpi;
+    } else {
+      // CBZ mode: use scale percentage
+      scaleRatio = cbzScale / 100;
+    }
+
+    const targetWidth = Math.round(img.width * scaleRatio);
+    const targetHeight = Math.round(img.height * scaleRatio);
 
     // Create canvas at target size
     const canvas = document.createElement('canvas');
@@ -582,14 +648,12 @@ export default function Home() {
     // Convert to data URL with specified format and quality
     const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
     const qualityValue = format === 'jpeg' ? quality / 100 : undefined;
-    console.log('[Compare] Applying settings:', { effectiveDpi, nativeDpi, dpiRatio, targetWidth, targetHeight, format, quality });
     const dataUrl = canvas.toDataURL(mimeType, qualityValue);
 
     // Calculate actual size from base64
     const base64Length = dataUrl.length - dataUrl.indexOf(',') - 1;
     const sizeBytes = base64Length * 0.75; // base64 to binary ratio
     const sizeKB = Math.round(sizeBytes / 1024);
-    console.log('[Compare] Result size:', sizeKB, 'KB, dimensions:', targetWidth, 'x', targetHeight);
 
     setConvertedImageInfo({
       sizeKB,
@@ -601,11 +665,11 @@ export default function Home() {
       if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
       return dataUrl;
     });
-  }, [sourceImageData, effectiveDpi, format, quality]);
+  }, [sourceImageData, mode, effectiveDpi, cbzScale, format, quality]);
 
   // Load comparison images (for initial compare or page change)
   const loadComparisonImages = useCallback(async (resetView = true) => {
-    if (!file || !analysis || mode === 'cbz-to-pdf') return;
+    if (!file || !analysis) return;
 
     setCompareMode(true);
     if (resetView) {
@@ -617,14 +681,14 @@ export default function Home() {
     if (cachedOriginalPage !== previewPage) {
       await loadSourceImage();
     }
-  }, [file, analysis, mode, previewPage, cachedOriginalPage, loadSourceImage]);
+  }, [file, analysis, previewPage, cachedOriginalPage, loadSourceImage]);
 
   // Track previous page for detecting page changes
   const prevPageRef = useRef(previewPage);
 
   // Reload source image only when page changes in compare mode
   useEffect(() => {
-    if (compareMode && file && mode === 'pdf-to-cbz') {
+    if (compareMode && file) {
       if (prevPageRef.current !== previewPage) {
         prevPageRef.current = previewPage;
         setCompareZoom(1);
@@ -641,7 +705,7 @@ export default function Home() {
       applyConversionSettings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceImageData, effectiveDpi, format, quality]);
+  }, [sourceImageData, effectiveDpi, cbzScale, format, quality]);
 
   // Direct extraction state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -802,7 +866,23 @@ export default function Home() {
             </h1>
             <div className="flex bg-gray-800 rounded-lg p-1">
               <button
-                onClick={() => { setMode('pdf-to-cbz'); setFile(null); setAnalysis(null); setPreviewUrl(null); setError(null); }}
+                onClick={() => {
+                  setMode('pdf-to-cbz');
+                  setFile(null);
+                  setAnalysis(null);
+                  setPreviewUrl(null);
+                  setError(null);
+                  // Clean up comparison/preview state
+                  setCompareMode(false);
+                  setOriginalPreviewUrl(null);
+                  setConvertedPreviewUrl(null);
+                  setSourceImageData(null);
+                  setOriginalImageInfo(null);
+                  setConvertedImageInfo(null);
+                  setCachedOriginalPage(null);
+                  setCompareZoom(1);
+                  setComparePan({ x: 0, y: 0 });
+                }}
                 className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                   mode === 'pdf-to-cbz' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
@@ -810,7 +890,23 @@ export default function Home() {
                 PDF → CBZ
               </button>
               <button
-                onClick={() => { setMode('cbz-to-pdf'); setFile(null); setAnalysis(null); setPreviewUrl(null); setError(null); }}
+                onClick={() => {
+                  setMode('cbz-to-pdf');
+                  setFile(null);
+                  setAnalysis(null);
+                  setPreviewUrl(null);
+                  setError(null);
+                  // Clean up comparison/preview state
+                  setCompareMode(false);
+                  setOriginalPreviewUrl(null);
+                  setConvertedPreviewUrl(null);
+                  setSourceImageData(null);
+                  setOriginalImageInfo(null);
+                  setConvertedImageInfo(null);
+                  setCachedOriginalPage(null);
+                  setCompareZoom(1);
+                  setComparePan({ x: 0, y: 0 });
+                }}
                 className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                   mode === 'cbz-to-pdf' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
@@ -898,13 +994,21 @@ export default function Home() {
                       </span>
                     </>
                   ) : (
-                    <div className="flex gap-4">
-                      <span><span className="text-gray-400">Images:</span> {analysis.pageCount}</span>
-                      <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.cbzSizeMB.toFixed(1)}MB</span></span>
-                      {analysis.pages.length > 0 && (
-                        <span><span className="text-gray-400">Dimensions:</span> {analysis.pages[0].width}x{analysis.pages[0].height}</span>
-                      )}
-                    </div>
+                    <>
+                      <div className="flex gap-4">
+                        <span><span className="text-gray-400">Images:</span> {analysis.pageCount}</span>
+                        <span><span className="text-gray-400">Size:</span> <span className="text-green-400">{analysis.cbzSizeMB.toFixed(1)}MB</span></span>
+                        {analysis.pages.length > 0 && (
+                          <span><span className="text-gray-400">Dim:</span> {analysis.pages[0].width}x{analysis.pages[0].height}</span>
+                        )}
+                      </div>
+                      <span className={`font-bold ${
+                        estimatedCbzToPdfSize && analysis.cbzSizeMB && Math.abs(estimatedCbzToPdfSize - analysis.cbzSizeMB) < analysis.cbzSizeMB * 0.2
+                          ? 'text-green-400' : 'text-yellow-400'
+                      }`}>
+                        ~{estimatedCbzToPdfSize?.toFixed(0) || '?'}MB
+                      </span>
+                    </>
                   )}
                 </div>
               </div>
@@ -1045,36 +1149,19 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Format + Quality - PDF mode only for format selection */}
-                {mode === 'pdf-to-cbz' ? (
-                  <div className="flex items-center gap-4">
-                    <div className="flex gap-3 text-sm">
-                      <label className="flex items-center cursor-pointer">
-                        <input type="radio" name="format" value="jpeg" checked={format === 'jpeg'} onChange={() => setFormat('jpeg')} className="mr-1.5" />
-                        JPEG
-                      </label>
-                      <label className="flex items-center cursor-pointer">
-                        <input type="radio" name="format" value="png" checked={format === 'png'} onChange={() => setFormat('png')} className="mr-1.5" />
-                        PNG
-                      </label>
-                    </div>
-                    {format === 'jpeg' && (
-                      <div className="flex-1 flex items-center gap-2">
-                        <input
-                          type="range"
-                          min="50"
-                          max="100"
-                          value={quality}
-                          onChange={(e) => setQuality(parseInt(e.target.value, 10))}
-                          className="flex-1 accent-blue-500"
-                        />
-                        <span className="text-sm text-gray-400 w-10">{quality}%</span>
-                      </div>
-                    )}
+                {/* Format + Quality - unified for both modes */}
+                <div className="flex items-center gap-4">
+                  <div className="flex gap-3 text-sm">
+                    <label className="flex items-center cursor-pointer">
+                      <input type="radio" name="format" value="jpeg" checked={format === 'jpeg'} onChange={() => setFormat('jpeg')} className="mr-1.5" />
+                      JPEG
+                    </label>
+                    <label className="flex items-center cursor-pointer">
+                      <input type="radio" name="format" value="png" checked={format === 'png'} onChange={() => setFormat('png')} className="mr-1.5" />
+                      PNG
+                    </label>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-400">JPEG Quality:</span>
+                  {format === 'jpeg' && (
                     <div className="flex-1 flex items-center gap-2">
                       <input
                         type="range"
@@ -1082,10 +1169,52 @@ export default function Home() {
                         max="100"
                         value={quality}
                         onChange={(e) => setQuality(parseInt(e.target.value, 10))}
-                        className="flex-1 accent-green-500"
+                        className={`flex-1 ${mode === 'pdf-to-cbz' ? 'accent-blue-500' : 'accent-green-500'}`}
                       />
                       <span className="text-sm text-gray-400 w-10">{quality}%</span>
                     </div>
+                  )}
+                </div>
+
+                {/* Scale slider for CBZ→PDF */}
+                {mode === 'cbz-to-pdf' && (
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-400">Scale:</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCbzScale(100)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          cbzScale === 100 ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        100%
+                      </button>
+                      <button
+                        onClick={() => setCbzScale(75)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          cbzScale === 75 ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        75%
+                      </button>
+                      <button
+                        onClick={() => setCbzScale(50)}
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                          cbzScale === 50 ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        50%
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      min="25"
+                      max="200"
+                      value={cbzScale}
+                      onChange={(e) => setCbzScale(parseInt(e.target.value, 10) || 100)}
+                      className="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm text-center focus:ring-1 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
                   </div>
                 )}
               </div>
@@ -1098,7 +1227,9 @@ export default function Home() {
                 disabled={!file || isConverting || isExtracting}
                 className={`px-3 py-3 ${mode === 'pdf-to-cbz' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-green-600 hover:bg-green-500'} disabled:bg-gray-800 disabled:text-gray-500 rounded-lg font-medium transition-colors`}
               >
-                {isConverting ? 'Converting...' : mode === 'pdf-to-cbz' ? `Convert (~${estimatedSize?.toFixed(0) || '?'}MB)` : 'Convert to PDF'}
+                {isConverting ? 'Converting...' : mode === 'pdf-to-cbz'
+                  ? `Convert (~${estimatedSize?.toFixed(0) || '?'}MB)`
+                  : `Convert (~${estimatedCbzToPdfSize?.toFixed(0) || '?'}MB)`}
               </button>
               <button
                 onClick={handleDirectExtract}
@@ -1152,9 +1283,9 @@ export default function Home() {
                 )}
               </h3>
               <div className="flex items-center gap-2">
-                {analysis && previewUrl && !compareMode && mode === 'pdf-to-cbz' && (
+                {analysis && previewUrl && !compareMode && (
                   <button
-                    onClick={loadComparisonImages}
+                    onClick={() => loadComparisonImages()}
                     className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded text-sm font-medium"
                   >
                     Compare
@@ -1241,10 +1372,22 @@ export default function Home() {
 
                 {previewUrl && (
                   <div className="mt-3 p-2 bg-gray-900 rounded text-xs text-gray-400 text-center">
-                    <span className="text-blue-400">DPI:</span> {effectiveDpi} |
-                    <span className="text-blue-400 ml-2">Format:</span> {format.toUpperCase()}
-                    {format === 'jpeg' && (
-                      <> | <span className="text-blue-400">Quality:</span> {quality}%</>
+                    {mode === 'pdf-to-cbz' ? (
+                      <>
+                        <span className="text-blue-400">DPI:</span> {effectiveDpi} |
+                        <span className="text-blue-400 ml-2">Format:</span> {format.toUpperCase()}
+                        {format === 'jpeg' && (
+                          <> | <span className="text-blue-400">Quality:</span> {quality}%</>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-green-400">Scale:</span> {cbzScale}% |
+                        <span className="text-green-400 ml-2">Format:</span> {format.toUpperCase()}
+                        {format === 'jpeg' && (
+                          <> | <span className="text-green-400">Quality:</span> {quality}%</>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -1306,7 +1449,9 @@ export default function Home() {
                       <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
                     )}
                     <div className="absolute bottom-1 right-1 bg-black/80 text-xs text-blue-400 px-1.5 py-0.5 rounded">
-                      {format.toUpperCase()} Q{quality}% {convertedImageInfo ? `${convertedImageInfo.sizeKB}KB` : ''}
+                      {format.toUpperCase()} Q{quality}%
+                      {mode === 'cbz-to-pdf' && cbzScale !== 100 && ` @${cbzScale}%`}
+                      {convertedImageInfo ? ` ${convertedImageInfo.sizeKB}KB` : ''}
                     </div>
                   </div>
                 </div>
