@@ -114,7 +114,7 @@ export default function BatchPage() {
         }));
       }
     },
-    [job.files, config]
+    [job.files, config, t]
   );
 
   // Remove file
