@@ -1,0 +1,6 @@
+[env]
+# Point to the PDFium library location on macOS
+DYLD_LIBRARY_PATH = "/usr/local/lib"
+
+# Fallback paths for the linker
+DYLD_FALLBACK_LIBRARY_PATH = "/usr/local/lib:/usr/lib"
