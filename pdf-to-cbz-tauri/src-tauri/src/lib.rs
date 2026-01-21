@@ -18,7 +18,12 @@ pub fn run() {
             generate_preview,
             generate_cbz_preview,
             convert_pdf_to_cbz,
+            convert_cbz_to_pdf,
+            save_last_pdf,
             optimize_pdf,
+            open_file_with_default_app,
+            get_file_size,
+            cancel_conversion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,503 +1,317 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from '@/lib/useTranslation';
 import LanguageSelector from '@/components/LanguageSelector';
 import * as TauriClient from '@/lib/tauri-client';
+import { listen } from '@tauri-apps/api/event';
 
 type ConversionMode = 'pdf-to-cbz' | 'cbz-to-pdf';
 
-interface OptimalParams {
-  dpi: number;
-  format: 'jpeg' | 'png';
-  quality: number;
-  estimatedSizeMB: number;
-  sizeRatio: number;
-  qualityScore: number;
-  reason: string;
+interface BatchFile {
+  path: string;
+  name: string;
+  savePath?: string;
+  sourceSize?: number;  // File size in bytes
+  convertedSize?: number;  // Converted file size in bytes
+  status: 'pending' | 'converting' | 'completed' | 'error' | 'cancelled';
+  progress: number;
+  error?: string;
 }
 
-interface TestResult {
-  dpi: number;
-  format: 'jpeg' | 'png';
-  quality: number;
-  avgPageSizeKB: number;
-  estimatedSizeMB: number;
-  sizeRatio: number;
-  qualityScore: number;
-}
+interface HomeProps {}
 
-function isPdfAnalysis(analysis: TauriClient.PdfAnalysisResult | TauriClient.CbzAnalysisResult): analysis is TauriClient.PdfAnalysisResult {
-  return 'pdfSizeMb' in analysis;
-}
-
-interface HomeProps {
-  onNavigateToBatch?: () => void;
-}
-
-export default function Home({ onNavigateToBatch }: HomeProps) {
+export default function Home({}: HomeProps) {
   const { lang, setLang, t } = useTranslation();
   const [mode, setMode] = useState<ConversionMode>('pdf-to-cbz');
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string>('');
-  const [analysis, setAnalysis] = useState<TauriClient.PdfAnalysisResult | TauriClient.CbzAnalysisResult | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewPage, setPreviewPage] = useState(1);
+  
+  // Batch mode (works for single or multiple files)
+  const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
 
   // Options
-  const [dpi, setDpi] = useState<string>('');
+  const [dpi, setDpi] = useState<string>('100');  // Reduced default from 150 to 100 for speed
   const [format, setFormat] = useState<TauriClient.ImageFormat>('jpeg');
-  const [quality, setQuality] = useState(85);
-  const [matchPdfSize, setMatchPdfSize] = useState(true);
-  const [cbzScale, setCbzScale] = useState(100);
+  const [quality, setQuality] = useState(75);  // Reduced from 85 to 75 for speed
+  const [directExtract, setDirectExtract] = useState(true);  // Direct extraction enabled by default
 
   // Status
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isConverting, setIsConverting] = useState(false);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [isOptimizing, setIsOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conversionProgress, setConversionProgress] = useState(0);
-  const [conversionStatus, setConversionStatus] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState(false);
+  const cancelledRef = useRef(false);
 
-  // Optimization results
-  const [optimalParams, setOptimalParams] = useState<OptimalParams | null>(null);
-  const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [samplePages, setSamplePages] = useState<number[]>([]);
-  const [showAllResults, setShowAllResults] = useState(false);
+  // Get effective DPI
+  const effectiveDpi = parseInt(dpi, 10) || 150;
 
-  // Optimization progress
-  const [optimizeProgress, setOptimizeProgress] = useState(0);
-  const [optimizeStatus, setOptimizeStatus] = useState('');
-  const [currentTest, setCurrentTest] = useState<{current: number; total: number} | null>(null);
-
-  // Comparison mode
-  const [compareMode, setCompareMode] = useState(false);
-  const [originalPreviewUrl, setOriginalPreviewUrl] = useState<string | null>(null);
-  const [convertedPreviewUrl, setConvertedPreviewUrl] = useState<string | null>(null);
-  const [compareZoom, setCompareZoom] = useState(1);
-  const [comparePan, setComparePan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  // Drag & drop state
-  const [isDragActive, setIsDragActive] = useState(false);
-
-  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const previewCacheRef = useRef<Map<string, string>>(new Map());
-
-  // Get effective DPI based on settings (PDF mode only)
-  const effectiveDpi = useMemo(() => {
-    if (dpi) return parseInt(dpi, 10);
-    if (!analysis || !isPdfAnalysis(analysis)) return 150;
-    return matchPdfSize ? analysis.nativeDpi : analysis.recommendedDpi;
-  }, [dpi, analysis, matchPdfSize]);
-
-  // Calculate estimated PDF size for CBZ→PDF mode
-  const estimatedCbzToPdfSize = useMemo(() => {
-    if (!analysis || isPdfAnalysis(analysis)) return null;
-
-    const cbzAnalysis = analysis;
-    let totalEstimatedBytes = 0;
-
-    for (const page of cbzAnalysis.pages) {
-      const scaledWidth = Math.round(page.width * (cbzScale / 100));
-      const scaledHeight = Math.round(page.height * (cbzScale / 100));
-      const totalPixels = scaledWidth * scaledHeight;
-
-      let bytesPerPixel: number;
-      if (format === 'png') {
-        bytesPerPixel = 0.8;
-      } else {
-        bytesPerPixel = 0.05 + (quality / 100) * 0.30;
-      }
-
-      totalEstimatedBytes += totalPixels * bytesPerPixel;
-    }
-
-    return (totalEstimatedBytes * 1.05) / (1024 * 1024);
-  }, [analysis, cbzScale, format, quality]);
-
-  // Calculate estimated size based on current settings (PDF mode only)
-  const estimatedSize = useMemo(() => {
-    if (!analysis || !isPdfAnalysis(analysis)) return null;
-
-    const currentDpi = effectiveDpi;
-
-    if (testResults.length > 0) {
-      const exactMatch = testResults.find(
-        r => r.dpi === currentDpi && r.format === format && r.quality === quality
-      );
-      if (exactMatch) {
-        return exactMatch.estimatedSizeMB;
-      }
-
-      const sameFormat = testResults.filter(r => r.format === format);
-      if (sameFormat.length > 0) {
-        const sorted = [...sameFormat].sort(
-          (a, b) => Math.abs(a.dpi - currentDpi) - Math.abs(b.dpi - currentDpi)
-        );
-        const closest = sorted[0];
-
-        const dpiRatio = currentDpi / closest.dpi;
-        const qualityFactor = format === 'jpeg'
-          ? (0.5 + quality / 200) / (0.5 + closest.quality / 200)
-          : 1;
-
-        return closest.estimatedSizeMB * dpiRatio * dpiRatio * qualityFactor;
-      }
-    }
-
-    let totalPixels = 0;
-    for (const page of analysis.pages) {
-      const scale = currentDpi / 72;
-      const widthPx = page.widthPt * scale;
-      const heightPx = page.heightPt * scale;
-      totalPixels += widthPx * heightPx;
-    }
-
-    let bytesPerPixel: number;
-    if (format === 'png') {
-      bytesPerPixel = 0.8;
-    } else {
-      bytesPerPixel = 0.05 + (quality / 100) * 0.30;
-    }
-
-    const totalBytes = totalPixels * bytesPerPixel;
-    return totalBytes / (1024 * 1024);
-  }, [analysis, effectiveDpi, format, quality, testResults]);
-
-  // Load preview with debouncing
-  const loadPreview = useCallback(async (path: string, page: number, currentDpi: number, currentFormat: TauriClient.ImageFormat, currentQuality: number) => {
-    const startTime = performance.now();
-    const previewDpi = Math.min(currentDpi, 100);
-    const cacheKey = `${path}:${page}:${previewDpi}:${currentFormat}:${currentQuality}`;
-
-    console.log('[PROFILE] loadPreview started:', { path, page, currentDpi, currentFormat, currentQuality });
-
-    // Check cache first
-    const cachedUrl = previewCacheRef.current.get(cacheKey);
-    if (cachedUrl) {
-      console.log('[PROFILE] Cache HIT - using cached preview');
-      setPreviewUrl(cachedUrl);
-      return;
-    }
-
-    setIsPreviewLoading(true);
-    setError(null);
-
-    try {
-      const generateStart = performance.now();
-      console.log(`[PROFILE] Cache MISS - generating preview with DPI ${previewDpi}...`);
-      const imageData = await TauriClient.generatePreview(
-        path,
-        page,
-        previewDpi,
-        currentFormat,
-        currentQuality
-      );
-      const generateEnd = performance.now();
-      console.log(`[PROFILE] generatePreview took ${(generateEnd - generateStart).toFixed(0)}ms, data length: ${imageData.byteLength} bytes`);
-
-      const base64Start = performance.now();
-      const url = TauriClient.arrayBufferToDataUrl(imageData, `image/${currentFormat}`);
-      const base64End = performance.now();
-      console.log(`[PROFILE] Base64 encoding took ${(base64End - base64Start).toFixed(0)}ms`);
-
-      // Store in cache
-      previewCacheRef.current.set(cacheKey, url);
-
-      setPreviewUrl(url);
-      const endTime = performance.now();
-      console.log(`[PROFILE] Total preview load time: ${(endTime - startTime).toFixed(0)}ms`);
-    } catch (err) {
-      console.error('[ERROR] Preview generation failed:', err);
-      setError(err instanceof Error ? err.message : 'Preview generation failed');
-      setPreviewUrl(null);
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  }, []);
-
-  // Load CBZ preview
-  const loadCbzPreview = useCallback(async (path: string, page: number) => {
-    setIsPreviewLoading(true);
-    setError(null);
-
-    try {
-      const imageData = await TauriClient.generateCbzPreview(
-        path,
-        page,
-        format,
-        quality
-      );
-
-      const url = TauriClient.arrayBufferToDataUrl(imageData, `image/${format}`);
-      setPreviewUrl(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Preview generation failed');
-      setPreviewUrl(null);
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  }, [format, quality]);
-
-  // File selection handler
-  const handleFileSelect = useCallback(async () => {
-    console.log('[DEBUG] handleFileSelect called, mode:', mode);
+  // File selection handler - always adds to batch
+  const handleFileSelect = useCallback(async (multiple = true) => {
+    console.log('[DEBUG] handleFileSelect called, mode:', mode, 'multiple:', multiple);
     setError(null);
     
     try {
-      const path = mode === 'pdf-to-cbz' 
-        ? await TauriClient.selectPdfFile()
-        : await TauriClient.selectCbzFile();
+      const result = mode === 'pdf-to-cbz' 
+        ? await TauriClient.selectPdfFile(multiple)
+        : await TauriClient.selectCbzFile(multiple);
       
-      console.log('[DEBUG] Selected file path:', path);
-      if (!path) {
+      console.log('[DEBUG] Selected file(s):', result);
+      if (!result) {
         console.log('[DEBUG] No file selected');
         return;
       }
-      
-      const name = path.split('/').pop() || path.split('\\').pop() || 'file';
-      console.log('[DEBUG] File name:', name);
-      setFilePath(path);
-      setFileName(name);
-      setPreviewUrl(null);
-      setAnalysis(null);
-      setOptimalParams(null);
-      setTestResults([]);
-      setSamplePages([]);
-      
-      // Analyze the file
-      setIsAnalyzing(true);
-      console.log('[DEBUG] Starting analysis...');
-      
-      if (mode === 'pdf-to-cbz') {
-        console.log('[DEBUG] Analyzing PDF...');
-        const result = await TauriClient.analyzePdf(path);
-        console.log('[DEBUG] PDF analysis result:', result);
-        setAnalysis(result);
-        setDpi(result.nativeDpi.toString());
-        setPreviewPage(1);
-        
-        // Load initial preview
-        console.log('[DEBUG] Loading preview...');
-        await loadPreview(path, 1, result.nativeDpi, format, quality);
-      } else {
-        console.log('[DEBUG] Analyzing CBZ...');
-        const result = await TauriClient.analyzeCbz(path);
-        console.log('[DEBUG] CBZ analysis result:', result);
-        setAnalysis(result);
-        setPreviewPage(1);
-        
-        // Load initial preview
-        await loadCbzPreview(path, 1);
-      }
-      console.log('[DEBUG] Analysis complete');
-    } catch (err) {
-      console.error('[ERROR] File selection/analysis failed:', err);
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, [mode, format, quality, loadPreview, loadCbzPreview]);
 
-  // Drag & drop handlers
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(true);
+      // Handle single or multiple files - always add to batch
+      const paths = Array.isArray(result) ? result : [result];
+      const newFiles = await Promise.all(paths.map(async (path) => {
+        const size = await TauriClient.getFileSize(path);
+        return {
+          path,
+          name: path.split('/').pop() || path.split('\\').pop() || 'file',
+          sourceSize: size,
+          status: 'pending' as const,
+          progress: 0,
+        };
+      }));
+
+      // Add to existing files (avoid duplicates)
+      setBatchFiles(prev => {
+        const existingPaths = new Set(prev.map(f => f.path));
+        const filesToAdd = newFiles.filter(f => !existingPaths.has(f.path));
+        return [...prev, ...filesToAdd];
+      });
+    } catch (err) {
+      console.error('[ERROR] File selection failed:', err);
+      setError(err instanceof Error ? err.message : 'File selection failed');
+    }
+  }, [mode]);
+
+  // Batch conversion handler
+  const handleBatchConvert = useCallback(async () => {
+    if (batchFiles.length === 0) return;
+
+    console.log('[DEBUG] Starting batch conversion for', batchFiles.length, 'files');
+
+    // Reset cancellation flag
+    setIsCancelling(false);
+    cancelledRef.current = false;
+
+    // Ask user to select destination directory (suggest first file's directory)
+    const firstFilePath = batchFiles[0].path;
+    const firstFileDir = firstFilePath.substring(0, firstFilePath.lastIndexOf('/'));
+    
+    const destinationDir = await TauriClient.selectDirectory(firstFileDir);
+    if (!destinationDir) {
+      console.log('[DEBUG] User cancelled directory selection');
+      return; // User cancelled
+    }
+
+    console.log('[DEBUG] Destination directory:', destinationDir);
+
+    // Create a local copy of files to process
+    const filesToProcess = [...batchFiles];
+
+    // Reset all files to pending status
+    setBatchFiles(filesToProcess.map(f => ({ ...f, status: 'pending', progress: 0, error: undefined, savePath: undefined })));
+
+    // Process each file
+    for (let i = 0; i < filesToProcess.length; i++) {
+      // Check if conversion was cancelled
+      if (cancelledRef.current) {
+        console.log('[DEBUG] Batch conversion cancelled by user');
+        // Mark remaining files as cancelled
+        setBatchFiles(prev => prev.map((f) => 
+          f.status === 'pending' ? { ...f, status: 'cancelled' } : f
+        ));
+        break;
+      }
+
+      const file = filesToProcess[i];
+      console.log(`[DEBUG] Processing file ${i + 1}/${filesToProcess.length}: ${file.name}`);
+
+      try {
+        // Mark as converting
+        setBatchFiles(prev => prev.map((f) => 
+          f.path === file.path ? { ...f, status: 'converting', progress: 0 } : f
+        ));
+
+        // Convert with progress callback (no need to analyze first - conversion does it internally)
+        const outputData = mode === 'pdf-to-cbz'
+          ? await TauriClient.convertPdfToCbz(
+              file.path,
+              effectiveDpi,
+              format,
+              quality,
+              (progress) => {
+                // Map conversion progress from 0% to 90%
+                const mappedProgress = progress.percentage * 0.9;
+                setBatchFiles(prev => prev.map((f) => 
+                  f.path === file.path ? { ...f, progress: Math.round(mappedProgress) } : f
+                ));
+              },
+              directExtract  // Pass direct extraction option
+            )
+          : await TauriClient.convertCbzToPdf(
+              file.path,
+              (progress) => {
+                // Map conversion progress from 0% to 90%
+                const mappedProgress = progress.percentage * 0.9;
+                setBatchFiles(prev => prev.map((f) => 
+                  f.path === file.path ? { ...f, progress: Math.round(mappedProgress) } : f
+                ));
+              }
+            );
+
+        // Update progress after conversion (90%)
+        setBatchFiles(prev => prev.map((f) => 
+          f.path === file.path ? { ...f, progress: 90 } : f
+        ));
+
+        // Determine default file name
+        const defaultName = mode === 'pdf-to-cbz'
+          ? file.name.replace(/\.pdf$/i, '.cbz')
+          : file.name.replace(/\.(cbz|cbr)$/i, '.pdf');
+
+        const savePath = `${destinationDir}/${defaultName}`;
+
+        // Store the save path
+        setBatchFiles(prev => prev.map((f) => 
+          f.path === file.path ? { ...f, savePath, progress: 95 } : f
+        ));
+
+        // Save the file
+        const isMagicMarker = 
+          outputData.length === 4 && 
+          outputData[0] === 0xFF && outputData[1] === 0xFE && 
+          outputData[2] === 0xFD && outputData[3] === 0xFC;
+        
+        if (isMagicMarker) {
+          // Large PDF - use saveLastPdf
+          await TauriClient.saveLastPdf(savePath);
+        } else {
+          // Normal size - write directly
+          await TauriClient.saveDataToFile(outputData, savePath);
+        }
+
+        // Get converted file size
+        const convertedSize = await TauriClient.getFileSize(savePath);
+        
+        // Mark as completed
+        setBatchFiles(prev => prev.map((f) => 
+          f.path === file.path ? { ...f, status: 'completed', progress: 100, convertedSize } : f
+        ));
+
+        console.log(`[DEBUG] Successfully converted: ${file.name} -> ${savePath}`);
+
+      } catch (err) {
+        console.error(`[ERROR] Failed to convert ${file.name}:`, err);
+        
+        // Check if it's a cancellation error
+        const errorMessage = err instanceof Error ? err.message : 'Conversion failed';
+        const isCancellation = errorMessage.includes('cancelled') || errorMessage.includes('Conversion cancelled');
+        
+        setBatchFiles(prev => prev.map((f) => 
+          f.path === file.path ? { 
+            ...f, 
+            status: isCancellation ? 'cancelled' : 'error', 
+            progress: 0, 
+            error: isCancellation ? undefined : errorMessage 
+          } : f
+        ));
+        
+        // If cancelled, stop processing remaining files
+        if (isCancellation) {
+          console.log('[DEBUG] Conversion was cancelled, stopping batch');
+          cancelledRef.current = true;
+          setBatchFiles(prev => prev.map((f) => 
+            f.status === 'pending' ? { ...f, status: 'cancelled' } : f
+          ));
+          break;
+        }
+      }
+    }
+
+    console.log('[DEBUG] Batch conversion completed');
+    setIsCancelling(false);
+    cancelledRef.current = false;
+  }, [batchFiles, mode, effectiveDpi, format, quality, directExtract]);
+
+  // Cancel batch conversion
+  const handleCancelBatch = useCallback(() => {
+    console.log('[DEBUG] User requested to cancel batch conversion');
+    setIsCancelling(true);
+    cancelledRef.current = true;
+    
+    // Also call Rust cancellation to stop ongoing conversions
+    TauriClient.cancelConversion().catch(err => {
+      console.error('[ERROR] Failed to cancel conversion:', err);
+    });
   }, []);
 
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(false);
+  // Restart batch conversion
+  const handleRestartBatch = useCallback(() => {
+    setBatchFiles(prev => prev.map(f => ({ ...f, status: 'pending', progress: 0, error: undefined })));
   }, []);
 
-  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragActive(false);
+  // Clear and add new files
+  const handleClearAndAddNew = useCallback(async () => {
+    setBatchFiles([]);
+    await handleFileSelect(true);
+  }, [handleFileSelect]);
 
-    const files = e.dataTransfer.files;
-    if (files.length === 0) return;
-
-    const file = files[0];
-    const fileName = file.name.toLowerCase();
-    const isPdf = fileName.endsWith('.pdf');
-    const isCbz = fileName.endsWith('.cbz') || fileName.endsWith('.cbr');
-
-    if (!isPdf && !isCbz) {
-      setError(mode === 'pdf-to-cbz' ? 'Please drop a PDF file' : 'Please drop a CBZ/CBR file');
-      return;
-    }
-
-    // Get the file path from Tauri
-    // Note: In Tauri, dropped files don't have the path directly.
-    // We'll use the file dialog instead for now
-    // In a real app, you'd need to use https://tauri.app/en/docs/api/filesystem/
-
-    // For now, trigger file selection dialog instead
-    await handleFileSelect();
-  }, [mode, handleFileSelect]);
-
-  // Convert handler
-  const handleConvert = useCallback(async () => {
-    if (!filePath || !analysis) return;
-
-    setIsConverting(true);
-    setError(null);
-    setConversionProgress(0);
-
-    try {
-      if (mode === 'pdf-to-cbz') {
-        const imageData = await TauriClient.convertPdfToCbz(
-          filePath,
-          effectiveDpi,
-          format,
-          quality,
-          (progress) => {
-            setConversionProgress(progress.percentage);
-            setConversionStatus(progress.message || '');
-          }
-        );
-
-        // Save file
-        const defaultName = fileName.replace(/\.pdf$/i, '.cbz');
-        const savePath = await TauriClient.saveCbzFile(defaultName);
-        
-        if (savePath) {
-          await TauriClient.saveDataToFile(imageData, savePath);
-          setConversionStatus(t('conversionCompleted') || 'Conversion completed!');
-        }
-      } else {
-        // TODO: Implement CBZ to PDF conversion
-        setError('CBZ to PDF conversion not yet implemented');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Conversion failed');
-    } finally {
-      setIsConverting(false);
-      setTimeout(() => {
-        setConversionProgress(0);
-        setConversionStatus('');
-      }, 3000);
-    }
-  }, [filePath, fileName, analysis, mode, effectiveDpi, format, quality, t]);
-
-  // Optimize handler
-  const handleOptimize = useCallback(async () => {
-    if (!filePath || !analysis || !isPdfAnalysis(analysis)) return;
-
-    setIsOptimizing(true);
-    setError(null);
-    setOptimizeProgress(0);
-    setOptimizeStatus('Finding optimal settings...');
-
-    try {
-      const imageData = await TauriClient.optimizePdf(
-        filePath,
-        (progress) => {
-          setOptimizeProgress(progress.percentage);
-          setOptimizeStatus(progress.message || '');
-        }
-      );
-
-      // The optimize command returns the converted file
-      // Save it
-      const defaultName = fileName.replace(/\.pdf$/i, '_optimized.cbz');
-      const savePath = await TauriClient.saveCbzFile(defaultName);
-      
-      if (savePath) {
-        await TauriClient.saveDataToFile(imageData, savePath);
-        setOptimizeStatus('Optimization completed!');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Optimization failed');
-    } finally {
-      setIsOptimizing(false);
-      setTimeout(() => {
-        setOptimizeProgress(0);
-        setOptimizeStatus('');
-      }, 3000);
-    }
-  }, [filePath, fileName, analysis]);
-
-  // Direct extract handler
-  const handleDirectExtract = useCallback(async () => {
-    if (!filePath || !analysis || !isPdfAnalysis(analysis)) return;
-
-    setIsConverting(true);
-    setError(null);
-    setConversionProgress(0);
-
-    try {
-      // For direct extraction, we still use conversion but notify user it's extraction
-      setConversionStatus('Extracting images...');
-      
-      const imageData = await TauriClient.convertPdfToCbz(
-        filePath,
-        72, // Use 72 DPI for direct extraction (native resolution)
-        'png', // Use PNG to preserve quality
-        100, // Maximum quality
-        (progress) => {
-          setConversionProgress(progress.percentage);
-          setConversionStatus(`Extracting: ${progress.message || ''}`);
-        }
-      );
-
-      const defaultName = fileName.replace(/\.pdf$/i, '_extracted.cbz');
-      const savePath = await TauriClient.saveCbzFile(defaultName);
-      
-      if (savePath) {
-        await TauriClient.saveDataToFile(imageData, savePath);
-        setConversionStatus('Extraction completed!');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extraction failed');
-    } finally {
-      setIsConverting(false);
-      setTimeout(() => {
-        setConversionProgress(0);
-        setConversionStatus('');
-      }, 3000);
-    }
-  }, [filePath, fileName, analysis]);
-
-  // Update preview when settings change
+  // Handle file drop event from Tauri
   useEffect(() => {
-    if (!filePath || !analysis) return;
+    const unlisten = listen<string[]>('tauri://file-drop', async (event) => {
+      console.log('[DEBUG] File drop event:', event.payload);
+      const files = event.payload;
+      
+      if (files.length === 0) return;
+      
+      // Filter files based on mode
+      const validFiles = files.filter(f => {
+        const lower = f.toLowerCase();
+        if (mode === 'pdf-to-cbz') {
+          return lower.endsWith('.pdf');
+        } else {
+          return lower.endsWith('.cbz') || lower.endsWith('.cbr');
+        }
+      });
 
-    if (previewTimeoutRef.current) {
-      clearTimeout(previewTimeoutRef.current);
-    }
-
-    previewTimeoutRef.current = setTimeout(() => {
-      if (mode === 'pdf-to-cbz' && isPdfAnalysis(analysis)) {
-        loadPreview(filePath, previewPage, effectiveDpi, format, quality);
-      } else if (mode === 'cbz-to-pdf') {
-        loadCbzPreview(filePath, previewPage);
+      if (validFiles.length === 0) {
+        setError(mode === 'pdf-to-cbz' ? 'Please drop PDF files only' : 'Please drop CBZ/CBR files only');
+        return;
       }
-    }, 300);
+
+      // Add all files to batch
+      const newFiles = await Promise.all(validFiles.map(async (path) => {
+        const size = await TauriClient.getFileSize(path);
+        return {
+          path,
+          name: path.split('/').pop() || path.split('\\').pop() || 'file',
+          sourceSize: size,
+          status: 'pending' as const,
+          progress: 0,
+        };
+      }));
+
+      // Add to existing files (avoid duplicates)
+      setBatchFiles(prev => {
+        const existingPaths = new Set(prev.map(f => f.path));
+        const filesToAdd = newFiles.filter(f => !existingPaths.has(f.path));
+        return [...prev, ...filesToAdd];
+      });
+    });
 
     return () => {
-      if (previewTimeoutRef.current) {
-        clearTimeout(previewTimeoutRef.current);
-      }
+      unlisten.then(fn => fn());
     };
-  }, [filePath, analysis, previewPage, effectiveDpi, format, quality, mode, loadPreview, loadCbzPreview]);
+  }, [mode]);
 
   // Mode change handler
   const handleModeChange = useCallback((newMode: ConversionMode) => {
     setMode(newMode);
-    setFilePath(null);
-    setFileName('');
-    setAnalysis(null);
-    setPreviewUrl(null);
+    setBatchFiles([]);
     setError(null);
-    setOptimalParams(null);
-    setTestResults([]);
   }, []);
+
+  // Check if any conversion is in progress
+  const isConverting = batchFiles.some(f => f.status === 'converting');
+  const hasCompleted = batchFiles.some(f => f.status === 'completed');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -510,12 +324,6 @@ export default function Home({ onNavigateToBatch }: HomeProps) {
             </h1>
             <div className="flex items-center gap-4">
               <LanguageSelector lang={lang} setLang={setLang} />
-              <button
-                onClick={onNavigateToBatch}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                {t('batchMode')}
-              </button>
             </div>
           </div>
         </div>
@@ -548,10 +356,7 @@ export default function Home({ onNavigateToBatch }: HomeProps) {
 
         {/* File Upload Area */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 mb-6">
-          <div
-            onClick={handleFileSelect}
-            className="border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors border-gray-300 dark:border-gray-600 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-gray-700"
-          >
+          <div className="border-2 border-dashed rounded-lg p-12 text-center transition-colors border-gray-300 dark:border-gray-600 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-gray-700">
             <div className="flex flex-col items-center">
               <svg
                 className="w-16 h-16 text-gray-400 mb-4"
@@ -567,22 +372,28 @@ export default function Home({ onNavigateToBatch }: HomeProps) {
                 />
               </svg>
               <p className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {mode === 'pdf-to-cbz' ? 'Click to select PDF' : 'Click to select CBZ/CBR'}
+                {mode === 'pdf-to-cbz' 
+                  ? 'Drag & drop PDF file(s) here or click to select' 
+                  : 'Drag & drop CBZ/CBR file(s) here or click to select'}
               </p>
-              {fileName && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Selected: {fileName}
+              
+              {/* Add Files Button */}
+              <div className="mt-4">
+                <button
+                  onClick={() => handleFileSelect(true)}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  📁 Add Files to List
+                </button>
+              </div>
+              
+              {batchFiles.length > 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                  {batchFiles.length} file(s) in list
                 </p>
               )}
             </div>
           </div>
-
-          {isAnalyzing && (
-            <div className="mt-4 text-center">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-              <p className="mt-2 text-gray-600 dark:text-gray-400">{t('analyzing')}</p>
-            </div>
-          )}
 
           {error && (
             <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
@@ -591,279 +402,232 @@ export default function Home({ onNavigateToBatch }: HomeProps) {
           )}
         </div>
 
-        {/* Analysis Results & Options */}
-        {analysis && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Column: Settings */}
-            <div className="space-y-6">
-              {/* Analysis Info */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                  {mode === 'pdf-to-cbz' ? 'PDF' : 'CBZ'} {t('analysis')}
-                </h2>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      {mode === 'pdf-to-cbz' ? t('pages') : t('images')}:
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {analysis.pageCount}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">{t('size')}:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {isPdfAnalysis(analysis) 
-                        ? `${analysis.pdfSizeMb.toFixed(2)} MB`
-                        : `${analysis.cbzSizeMb.toFixed(2)} MB`
-                      }
-                    </span>
-                  </div>
-                  {isPdfAnalysis(analysis) && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">{t('native')} DPI:</span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {analysis.nativeDpi}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">{t('hd')} DPI:</span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {analysis.recommendedDpi}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Conversion Options */}
-              {mode === 'pdf-to-cbz' && isPdfAnalysis(analysis) && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                    {t('conversionSettings')}
-                  </h2>
-
-                  {/* DPI Setting */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {t('resolution')} (DPI)
-                    </label>
-                    <div className="flex items-center gap-4 mb-2">
-                      <input
-                        type="range"
-                        min="72"
-                        max="600"
-                        value={effectiveDpi}
-                        onChange={(e) => setDpi(e.target.value)}
-                        className="flex-1"
-                      />
-                      <input
-                        type="number"
-                        value={dpi || effectiveDpi}
-                        onChange={(e) => setDpi(e.target.value)}
-                        className="w-20 px-3 py-2 border border-gray-300 rounded-lg"
-                        min="72"
-                        max="600"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          setDpi('');
-                          setMatchPdfSize(true);
-                        }}
-                        className={`px-3 py-1 text-sm rounded ${
-                          matchPdfSize && !dpi
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}
-                      >
-                        {t('matchPdf')} ({analysis.nativeDpi})
-                      </button>
-                      <button
-                        onClick={() => {
-                          setDpi('');
-                          setMatchPdfSize(false);
-                        }}
-                        className={`px-3 py-1 text-sm rounded ${
-                          !matchPdfSize && !dpi
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}
-                      >
-                        HD ({analysis.recommendedDpi})
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Format Selection */}
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {t('format')}
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setFormat('jpeg')}
-                        className={`flex-1 px-4 py-2 rounded-lg ${
-                          format === 'jpeg'
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}
-                      >
-                        JPEG
-                      </button>
-                      <button
-                        onClick={() => setFormat('png')}
-                        className={`flex-1 px-4 py-2 rounded-lg ${
-                          format === 'png'
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        }`}
-                      >
-                        PNG
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Quality Slider (JPEG only) */}
-                  {format === 'jpeg' && (
-                    <div className="mb-6">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {t('quality')}: {quality}%
-                      </label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="100"
-                        value={quality}
-                        onChange={(e) => setQuality(parseInt(e.target.value))}
-                        className="w-full"
-                      />
-                    </div>
-                  )}
-
-                  {/* Estimated Size */}
-                  {estimatedSize !== null && (
-                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-                          Estimated output:
-                        </span>
-                        <span className="font-semibold text-blue-700 dark:text-blue-400">
-                          ~{estimatedSize.toFixed(2)} MB
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="space-y-3">
+        {/* Batch Mode Interface - Always visible when there are files */}
+        {batchFiles.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Batch Conversion ({batchFiles.length} files)
+              </h2>
+              <div className="flex gap-2">
                 <button
-                  onClick={handleConvert}
-                  disabled={isConverting || isOptimizing}
-                  className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
+                  onClick={() => handleFileSelect(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 >
-                  {isConverting ? t('converting') : t('convert')}
+                  ➕ Add More Files
                 </button>
+                <button
+                  onClick={() => {
+                    setBatchFiles([]);
+                  }}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  🗑️ Clear All
+                </button>
+              </div>
+            </div>
 
-                {mode === 'pdf-to-cbz' && isPdfAnalysis(analysis) && (
-                  <>
-                    <button
-                      onClick={handleOptimize}
-                      disabled={isConverting || isOptimizing}
-                      className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
-                    >
-                      {isOptimizing ? t('optimizing') : t('autoOptimize')}
-                    </button>
-
-                    <button
-                      onClick={handleDirectExtract}
-                      disabled={isConverting || isOptimizing}
-                      className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
-                    >
-                      {t('direct')} Extract
-                    </button>
-                  </>
+            {/* Conversion Settings */}
+            <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Conversion Settings</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {mode === 'pdf-to-cbz' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      DPI
+                    </label>
+                    <input
+                      type="number"
+                      value={dpi}
+                      onChange={(e) => setDpi(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Format
+                  </label>
+                  <select
+                    value={format}
+                    onChange={(e) => setFormat(e.target.value as TauriClient.ImageFormat)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    <option value="jpeg">JPEG</option>
+                    <option value="png">PNG</option>
+                  </select>
+                </div>
+                {format === 'jpeg' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quality ({quality})
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={quality}
+                      onChange={(e) => setQuality(parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
                 )}
               </div>
-
-              {/* Progress */}
-              {(conversionProgress > 0 || optimizeProgress > 0) && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <div className="mb-2">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600 dark:text-gray-400">
-                        {conversionStatus || optimizeStatus}
-                      </span>
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        {Math.round(conversionProgress || optimizeProgress)}%
-                      </span>
+              
+              {/* Direct Extraction Option (PDF to CBZ only with JPEG format) */}
+              {mode === 'pdf-to-cbz' && format === 'jpeg' && (
+                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={directExtract}
+                      onChange={(e) => setDirectExtract(e.target.checked)}
+                      className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                        ⚡ Direct Extraction (Fast Mode)
+                      </div>
+                      <div className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                        Extract JPEG images directly from PDF without re-encoding. Much faster but only works if PDF contains JPEG images. Falls back to standard mode if not available.
+                      </div>
                     </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${conversionProgress || optimizeProgress}%` }}
-                      />
-                    </div>
-                  </div>
+                  </label>
                 </div>
               )}
             </div>
 
-            {/* Right Column: Preview */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                  {t('livePreview')}
-                </h2>
-                {analysis && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPreviewPage(Math.max(1, previewPage - 1))}
-                      disabled={previewPage === 1}
-                      className="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded disabled:opacity-50"
-                    >
-                      ←
-                    </button>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {t('page')} {previewPage} {t('of')} {analysis.pageCount}
-                    </span>
-                    <button
-                      onClick={() => setPreviewPage(Math.min(analysis.pageCount, previewPage + 1))}
-                      disabled={previewPage === analysis.pageCount}
-                      className="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded disabled:opacity-50"
-                    >
-                      →
-                    </button>
-                  </div>
-                )}
-              </div>
+            {/* Batch Files List */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Source ⇒ Destination
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Progress
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                  {batchFiles.map((file, idx) => (
+                    <tr key={idx}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => TauriClient.openFile(file.path)}
+                              className="text-blue-600 dark:text-blue-400 hover:underline text-left"
+                            >
+                              {file.name}
+                            </button>
+                            {file.sourceSize && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                ({(file.sourceSize / 1024 / 1024).toFixed(1)} MB)
+                              </span>
+                            )}
+                          </div>
+                          {file.savePath && (
+                            <>
+                              <span className="text-gray-400">⇓</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => TauriClient.openFile(file.savePath!)}
+                                  className="text-green-600 dark:text-green-400 hover:underline text-left"
+                                >
+                                  {file.savePath.split('/').pop() || file.savePath.split('\\').pop()}
+                                </button>
+                                {file.convertedSize && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    ({(file.convertedSize / 1024 / 1024).toFixed(1)} MB)
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          file.status === 'pending' ? 'bg-gray-100 text-gray-800' :
+                          file.status === 'converting' ? 'bg-blue-100 text-blue-800' :
+                          file.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          file.status === 'cancelled' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {file.status}
+                        </span>
+                        {file.error && (
+                          <p className="text-xs text-red-600 mt-1">{file.error}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
+                            <div
+                              className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${file.progress}%` }}
+                            />
+                          </div>
+                          <span className="text-sm text-gray-600 dark:text-gray-400">
+                            {file.progress}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-              <div className="relative bg-gray-100 dark:bg-gray-900 rounded-lg overflow-hidden" style={{ minHeight: '400px' }}>
-                {isPreviewLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                  </div>
-                )}
-                {previewUrl && !isPreviewLoading && (
-                  <img
-                    src={previewUrl}
-                    alt="Preview"
-                    className="w-full h-auto"
-                  />
-                )}
-                {!previewUrl && !isPreviewLoading && !filePath && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <p className="text-gray-500 dark:text-gray-400">
-                      {mode === 'pdf-to-cbz' ? t('uploadPdf') : t('uploadCbz')}
-                    </p>
-                  </div>
-                )}
-              </div>
+            {/* Batch Control Buttons */}
+            <div className="mt-6 flex gap-3">
+              {!isConverting && !hasCompleted && (
+                <button
+                  onClick={handleBatchConvert}
+                  disabled={batchFiles.length === 0}
+                  className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
+                >
+                  🚀 Start Batch Conversion
+                </button>
+              )}
+              
+              {isConverting && (
+                <button
+                  onClick={handleCancelBatch}
+                  disabled={isCancelling}
+                  className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
+                >
+                  {isCancelling ? '⏹️ Cancelling...' : '⏹️ Stop Conversion'}
+                </button>
+              )}
+              
+              {hasCompleted && !isConverting && (
+                <>
+                  <button
+                    onClick={handleRestartBatch}
+                    className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors"
+                  >
+                    🔄 Restart Batch Conversion
+                  </button>
+                  <button
+                    onClick={handleClearAndAddNew}
+                    className="flex-1 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors"
+                  >
+                    🆕 Clear & Add New Files
+                  </button>
+                </>
+              )}
+              
+              {isConverting && (
+                <div className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg font-medium text-center">
+                  ⏳ Converting... ({batchFiles.filter(f => f.status === 'completed').length}/{batchFiles.length})
+                </div>
+              )}
             </div>
           </div>
         )}

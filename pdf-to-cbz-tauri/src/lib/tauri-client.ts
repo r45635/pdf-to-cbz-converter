@@ -52,11 +52,11 @@ export type ImageFormat = 'jpeg' | 'png';
 // ============================================================================
 
 /**
- * Open file dialog to select a PDF file
+ * Open file dialog to select a PDF file (single or multiple)
  */
-export async function selectPdfFile(): Promise<string | null> {
+export async function selectPdfFile(multiple = false): Promise<string | string[] | null> {
   const selected = await open({
-    multiple: false,
+    multiple,
     filters: [
       {
         name: 'PDF',
@@ -65,18 +65,21 @@ export async function selectPdfFile(): Promise<string | null> {
     ],
   });
 
-  if (selected && typeof selected === 'string') {
+  if (multiple && Array.isArray(selected)) {
+    return selected;
+  }
+  if (!multiple && typeof selected === 'string') {
     return selected;
   }
   return null;
 }
 
 /**
- * Open file dialog to select a CBZ file
+ * Open file dialog to select a CBZ file (single or multiple)
  */
-export async function selectCbzFile(): Promise<string | null> {
+export async function selectCbzFile(multiple = false): Promise<string | string[] | null> {
   const selected = await open({
-    multiple: false,
+    multiple,
     filters: [
       {
         name: 'Comic Book Archive',
@@ -85,30 +88,26 @@ export async function selectCbzFile(): Promise<string | null> {
     ],
   });
 
-  if (selected && typeof selected === 'string') {
+  if (multiple && Array.isArray(selected)) {
+    return selected;
+  }
+  if (!multiple && typeof selected === 'string') {
     return selected;
   }
   return null;
 }
 
 /**
- * Open file dialog to select multiple PDF files for batch processing
+ * Select a directory/folder
  */
-export async function selectMultiplePdfFiles(): Promise<string[]> {
+export async function selectDirectory(defaultPath?: string): Promise<string | null> {
   const selected = await open({
-    multiple: true,
-    filters: [
-      {
-        name: 'PDF',
-        extensions: ['pdf'],
-      },
-    ],
+    directory: true,
+    multiple: false,
+    defaultPath,
   });
 
-  if (Array.isArray(selected)) {
-    return selected;
-  }
-  return [];
+  return typeof selected === 'string' ? selected : null;
 }
 
 /**
@@ -126,6 +125,37 @@ export async function saveCbzFile(defaultName: string): Promise<string | null> {
   });
 
   return selected;
+}
+
+/**
+ * Save file dialog to choose where to save the output PDF
+ */
+export async function savePdfFile(defaultName: string): Promise<string | null> {
+  const selected = await save({
+    defaultPath: defaultName,
+    filters: [
+      {
+        name: 'PDF',
+        extensions: ['pdf'],
+      },
+    ],
+  });
+
+  return selected;
+}
+
+/**
+ * Save the last converted PDF to a user-selected location
+ */
+export async function saveLastPdf(path: string): Promise<void> {
+  return invoke<void>('save_last_pdf', { path });
+}
+
+/**
+ * Open a file with the default system application
+ */
+export async function openFile(path: string): Promise<void> {
+  return invoke<void>('open_file_with_default_app', { path });
 }
 
 // ============================================================================
@@ -167,7 +197,8 @@ export async function convertPdfToCbz(
   dpi: number,
   format: ImageFormat,
   quality: number,
-  onProgress?: (progress: ConversionProgress) => void
+  onProgress?: (progress: ConversionProgress) => void,
+  directExtract?: boolean  // New optional parameter
 ): Promise<Uint8Array> {
   // Setup progress listener
   let unlisten: (() => void) | undefined;
@@ -184,6 +215,7 @@ export async function convertPdfToCbz(
       dpi,
       format,
       quality,
+      directExtract: directExtract ?? false,  // Default to false
     });
     
     return new Uint8Array(result);
@@ -249,6 +281,45 @@ export async function generateCbzPreview(
   return new Uint8Array(result);
 }
 
+/**
+ * Convert CBZ/CBR to PDF with progress tracking
+ * Returns a magic marker [0xFF, 0xFE, 0xFD, 0xFC] if the PDF is too large for IPC
+ * In that case, use saveLastPdf() to save it to disk
+ */
+export async function convertCbzToPdf(
+  path: string,
+  onProgress?: (progress: ConversionProgress) => void
+): Promise<Uint8Array> {
+  // Setup progress listener
+  let unlisten: (() => void) | undefined;
+
+  if (onProgress) {
+    unlisten = await listen<ConversionProgress>('conversion-progress', (event) => {
+      onProgress(event.payload);
+    });
+  }
+
+  try {
+    console.log('[convertCbzToPdf] Calling invoke...');
+    const result = await invoke<number[]>('convert_cbz_to_pdf', {
+      path,
+    });
+    console.log('[convertCbzToPdf] Invoke returned, length:', result.length);
+
+    // Wait a bit for the final progress event to be received
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const data = new Uint8Array(result);
+    console.log('[convertCbzToPdf] Converted to Uint8Array, size:', data.length);
+    
+    return data;
+  } finally {
+    if (unlisten) {
+      unlisten();
+    }
+  }
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -277,4 +348,29 @@ export async function saveDataToFile(data: Uint8Array, path: string): Promise<vo
   // Use Tauri's fs plugin to write the file
   const { writeFile } = await import('@tauri-apps/plugin-fs');
   await writeFile(path, data);
+}
+
+/**
+ * Get file size in bytes
+ */
+export async function getFileSize(path: string): Promise<number> {
+  try {
+    const size = await invoke<number>('get_file_size', { path });
+    return size;
+  } catch (err) {
+    console.error('[getFileSize] Error:', err);
+    return 0;
+  }
+}
+
+/**
+ * Cancel ongoing conversion
+ */
+export async function cancelConversion(): Promise<void> {
+  try {
+    await invoke('cancel_conversion');
+    console.log('[cancelConversion] Cancellation requested');
+  } catch (err) {
+    console.error('[cancelConversion] Error:', err);
+  }
 }

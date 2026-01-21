@@ -110,35 +110,3 @@ pub fn render_pdf_page_sync(
 
     Ok(png_data)
 }
-
-/// Render all pages of a PDF
-pub async fn render_all_pages(
-    pdf_path: &str,
-    dpi: u32,
-    progress_callback: Option<impl Fn(u32, u32) + Send + 'static>,
-) -> Result<Vec<Vec<u8>>> {
-    let pdf_data = tokio::fs::read(pdf_path)
-        .await
-        .context("Failed to read PDF file")?;
-
-    let pdfium = Pdfium::default();
-    let document = pdfium
-        .load_pdf_from_byte_vec(pdf_data.clone(), None)
-        .context("Failed to load PDF document")?;
-
-    let page_count = document.pages().len();
-    let mut rendered_pages = Vec::with_capacity(page_count as usize);
-
-    for page_index in 0..page_count {
-        let page_num = page_index + 1;
-        
-        if let Some(ref callback) = progress_callback {
-            callback(page_num as u32, page_count as u32);
-        }
-
-        let page_data = render_page_from_bytes(&pdf_data, page_num as u32, dpi).await?;
-        rendered_pages.push(page_data);
-    }
-
-    Ok(rendered_pages)
-}

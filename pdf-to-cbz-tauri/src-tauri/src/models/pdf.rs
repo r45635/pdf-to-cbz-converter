@@ -19,13 +19,3 @@ pub struct PdfAnalysisResult {
     pub pdf_size_mb: f64,
     pub native_dpi: u32,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExtractedImage {
-    pub page_number: u32,
-    pub width: u32,
-    pub height: u32,
-    pub format: String,
-    pub data: Vec<u8>,
-}
